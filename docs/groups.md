@@ -28,9 +28,9 @@ exchange; it is view-only.
 Bots decide whom to ask from each bot's **How other bots see it** description in its settings
 under **Advanced**. Keep it to one line about what the bot is for.
 
-By default bots only talk to bots in the same [space](./spaces.md). Turn on
-**Allow cross-space bot communication** in a bot's settings under **Permissions** to let it reach
-bots in your other spaces.
+In Daily Bot, turn on **Allow cross-space bot communication** under **Permissions** for both bots.
+They can then use `message_bot` to reach your bots in other spaces in the same organization. The same permission also applies to existing agent connections
+that reach other people's bots through a linked chat app.
 
 ## Subagents
 

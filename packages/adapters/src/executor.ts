@@ -7,7 +7,7 @@ import {
   SandboxUnresponsiveError,
 } from "@rakazo/adapter-kit";
 import type { MessageBlock, ModelRoleChoice, RunStatus } from "@rakazo/contracts";
-import { disabledBuiltinToolSet } from "@rakazo/contracts";
+import { canonicalPiProviderId, disabledBuiltinToolSet } from "@rakazo/contracts";
 import {
   assertTransition,
   botMessageAllowsSilence,
@@ -18,6 +18,7 @@ import {
   isCallClientNonce,
   isMessagingChannelRun,
   isOwnerStartedRun,
+  isRealtimeHandoffRunNonce,
   isTerminal,
   MISSING_MODEL_RUN_ERROR,
   MODEL_ACCESS_REQUIRED_RUN_ERROR,
@@ -92,6 +93,7 @@ import {
   persistLivePluginConnections,
   selectRunConnections,
 } from "./connection-context.js";
+import { crossSpaceBotPeers } from "./cross-space-bots.js";
 import { formatCurrentTimeInstruction } from "./current-time.js";
 import { resolveDeploymentModel } from "./deployment-model.js";
 import type { ExecutorDeps } from "./executor-deps.js";
@@ -128,6 +130,7 @@ import {
 import { modelAcceptsImageInput } from "./model-vision.js";
 import { usesNativeShell } from "./native-shell.js";
 import { paymentWalletConnected } from "./payment-wallets.js";
+import { listPiCatalog } from "./pi-models.js";
 import { isRetiredModelCredentialError } from "./pi-oauth.js";
 import { restoreComputerModels } from "./pi-runtime-computer-mode.js";
 import { loadPurchaseRedactions } from "./purchase-service.js";
@@ -1274,12 +1277,42 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
             ));
           }
         }
+        const sourceMessage =
+          (run.trigger === "user" || run.trigger === "follow_up") && run.sourceMessageId
+            ? await deps.prisma.message.findUnique({
+                where: { id: run.sourceMessageId },
+                select: { clientNonce: true, role: true, blocks: true, threadId: true },
+              })
+            : null;
+        // Calls carry no schema flag: the sending client encodes them in the clientNonce.
+        const sourceClientNonce = sourceMessage?.clientNonce ?? null;
+        // A follow-up can be queued by a bot (group handoffs); only the user's own counts.
+        const liveCallHandoff = isRealtimeHandoffRunNonce(run.clientNonce);
+        const ownerStartedRun =
+          !liveCallHandoff && isOwnerStartedRun(run.trigger, sourceMessage?.role === "user");
+        // A hang-up run has no source message: its own nonce carries the call it closes.
+        const callEndRun = run.trigger === "call_end";
+        const callClientNonceForRun = callEndRun ? run.clientNonce : sourceClientNonce;
+        const voiceCall = callEndRun || (!liveCallHandoff && isCallClientNonce(sourceClientNonce));
+        const callCanSkipThinking =
+          voiceCall &&
+          !callEndRun &&
+          listPiCatalog()
+            .find(
+              (entry) =>
+                entry.provider === canonicalPiProviderId(runModelProvider) &&
+                entry.id === runModelId,
+            )
+            ?.thinkingLevels?.includes("off");
         const mainRunModel: AgentRunRequest["model"] = pinnedComputerModels?.main ?? {
           provider: runModelProvider,
           id: runModelId,
           ...(credential ? { connectionId: credential.id } : {}),
           ...resolvedModelRunFields(resolved),
-          thinkingLevel: thinkingLevel ?? resolved.thinkingLevel ?? null,
+          // Daily Bot requests faster spoken turns only when the model advertises this mode.
+          thinkingLevel: callCanSkipThinking
+            ? "off"
+            : (thinkingLevel ?? resolved.thinkingLevel ?? null),
         };
         // Saved identities win on resume, including when the setting was cleared meanwhile.
         const computerModel =
@@ -1305,21 +1338,6 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
                 { userId: run.userId, spaceId: run.spaceId },
                 mainRunModel,
               ));
-        const sourceMessage =
-          (run.trigger === "user" || run.trigger === "follow_up") && run.sourceMessageId
-            ? await deps.prisma.message.findUnique({
-                where: { id: run.sourceMessageId },
-                select: { clientNonce: true, role: true, blocks: true, threadId: true },
-              })
-            : null;
-        // Calls carry no schema flag: the sending client encodes them in the clientNonce.
-        const sourceClientNonce = sourceMessage?.clientNonce ?? null;
-        // A follow-up can be queued by a bot (group handoffs); only the user's own counts.
-        const ownerStartedRun = isOwnerStartedRun(run.trigger, sourceMessage?.role === "user");
-        // A hang-up run has no source message: its own nonce carries the call it closes.
-        const callEndRun = run.trigger === "call_end";
-        const callClientNonceForRun = callEndRun ? run.clientNonce : sourceClientNonce;
-        const voiceCall = callEndRun || isCallClientNonce(sourceClientNonce);
         const acceptsImages =
           deps.runtime.describe().capabilities.scripted ||
           modelSeesImages ||
@@ -1328,13 +1346,15 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
         const pageBrowserAllowed =
           graphical && browser.describe().capabilities.page && !heldForTakeover;
         const disabledBuiltinTools = disabledBuiltinToolSet(bot.disabledBuiltinTools);
-        const userComputerOwnerId = userComputerOwner({
-          trigger: run.trigger,
-          sourceRole: sourceMessage?.role,
-          messagingChannelRun: nonOwnerChatRun,
-          runUserId: run.userId,
-          botUserId: bot.userId,
-        });
+        const userComputerOwnerId = liveCallHandoff
+          ? undefined
+          : userComputerOwner({
+              trigger: run.trigger,
+              sourceRole: sourceMessage?.role,
+              messagingChannelRun: nonOwnerChatRun,
+              runUserId: run.userId,
+              botUserId: bot.userId,
+            });
         let userComputer: UserComputerState;
         let userComputerScreen = false;
         if (
@@ -1721,7 +1741,7 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
           : history;
         const runtimeHistory = [...historicalContext, ...historyWithImages];
         // Without a roster a bot only knows the bots it spawned itself.
-        const [teammates, groupDirectory] = await Promise.all([
+        const [teammates, crossSpacePeers, groupDirectory] = await Promise.all([
           thread.groupId
             ? []
             : deps.prisma.bot.findMany({
@@ -1736,10 +1756,19 @@ export function createRunExecutor(executorDeps: ExecutorDeps) {
                 orderBy: { createdAt: "asc" },
                 take: BOT_DIRECTORY_LIMIT,
               }),
+          !thread.groupId && bot.crossSpaceCommunication === true
+            ? crossSpaceBotPeers(deps.prisma, run, {}, BOT_DIRECTORY_LIMIT)
+            : [],
           !thread.groupId ? loadBotGroupDirectory(deps.prisma, run) : undefined,
         ]);
+        const crossSpaceDirectory = crossSpacePeers.map((peer) => ({
+          ...peer,
+          name: `${peer.name} (${peer.space.name})`,
+        }));
         const botDirectory =
-          [renderBotDirectory(teammates), groupDirectory].filter(Boolean).join("\n\n") || undefined;
+          [renderBotDirectory([...teammates, ...crossSpaceDirectory]), groupDirectory]
+            .filter(Boolean)
+            .join("\n\n") || undefined;
 
         if (heldForTakeover) {
           const releasedCheckpoint = takeoverCheckpointOf(

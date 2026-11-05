@@ -1,7 +1,8 @@
 import { useLingui } from "@lingui/react/macro";
 import { BotAvatar, Button, cn, defaultBotAvatarValue } from "@rakazo/ui-web";
 import { Captions, ChevronDown, Mic, MicOff, PhoneOff, Settings } from "lucide-react";
-import { useEffect, useState } from "react";
+import type { CSSProperties, RefObject } from "react";
+import { useEffect, useLayoutEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import type { CallState } from "../../lib/call-session";
 import {
@@ -35,13 +36,50 @@ function useCallElapsed(call: CallState | null): number {
   return connectedAt === null ? 0 : Math.max(0, Math.floor((now - connectedAt) / 1000));
 }
 
-export function CallCard({ onSettings }: { onSettings: () => void }) {
+export function CallCard({
+  onSettings,
+  anchor,
+  panelOpen = false,
+}: {
+  onSettings: () => void;
+  anchor?: RefObject<HTMLElement | null>;
+  panelOpen?: boolean;
+}) {
   const { t } = useLingui();
   const call = useCallSession();
   const elapsed = useCallElapsed(call);
   const navigate = useNavigate();
   const { botId } = useParams();
   const onCall = Boolean(call);
+  const [placement, setPlacement] = useState({ offset: 16, width: 360 });
+  useLayoutEffect(() => {
+    const chat = anchor?.current;
+    if (!onCall || !chat) return;
+    const panel = panelOpen
+      ? document.querySelector<HTMLElement>('aside[data-panel]:not([data-panel="closed"])')
+      : null;
+    const update = () => {
+      const rtl = document.documentElement.dir === "rtl";
+      const rect = chat.getBoundingClientRect();
+      const edge = panel?.getBoundingClientRect();
+      const availableEnd = rtl
+        ? Math.min(window.innerWidth - rect.left, edge ? window.innerWidth - edge.right : Infinity)
+        : Math.min(rect.right, edge?.left ?? Infinity);
+      setPlacement({
+        offset: Math.max(16, window.innerWidth - availableEnd + 16),
+        width: Math.max(240, Math.min(360, availableEnd - 32)),
+      });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(chat);
+    if (panel) observer.observe(panel);
+    window.addEventListener("resize", update);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", update);
+    };
+  }, [anchor, onCall, panelOpen]);
   useEffect(() => {
     if (!onCall) return;
     function onKey(event: KeyboardEvent) {
@@ -69,7 +107,13 @@ export function CallCard({ onSettings }: { onSettings: () => void }) {
       data-testid="call-view"
       role="dialog"
       aria-label={t`Call with ${call.botName}`}
-      className="fixed inset-0 z-50 flex flex-col bg-background px-5 pt-[max(env(safe-area-inset-top),12px)] pb-[max(env(safe-area-inset-bottom),24px)] md:inset-auto md:end-4 md:top-16 md:w-[360px] md:rounded-[22px] md:border md:border-border md:bg-card md:px-4 md:pt-2 md:pb-5 md:shadow-lg"
+      style={
+        {
+          "--call-offset": `${placement.offset}px`,
+          "--call-width": `${placement.width}px`,
+        } as CSSProperties
+      }
+      className="fixed inset-0 z-50 flex flex-col bg-background px-5 pt-[max(env(safe-area-inset-top),12px)] pb-[max(env(safe-area-inset-bottom),24px)] md:inset-auto md:end-(--call-offset) md:top-16 md:max-h-[calc(100dvh-5rem)] md:w-(--call-width) md:overflow-y-auto md:rounded-[22px] md:border md:border-border md:bg-card md:px-4 md:pt-2 md:pb-5 md:shadow-lg"
     >
       <div className="flex items-center gap-1">
         <Button
@@ -97,7 +141,10 @@ export function CallCard({ onSettings }: { onSettings: () => void }) {
           size="icon"
           className="rounded-full text-muted-foreground"
           aria-label={t`Settings`}
-          onClick={onSettings}
+          onClick={() => {
+            setCallMinimized(true);
+            onSettings();
+          }}
         >
           <Settings />
         </Button>

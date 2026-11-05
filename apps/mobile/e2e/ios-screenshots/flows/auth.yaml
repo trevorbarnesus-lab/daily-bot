@@ -4,18 +4,18 @@ name: Auth
 - runFlow: ../subflows/launch-app.yaml
 - runFlow:
     when:
-      visible: "Sign in to Rakazo"
+      visible: "Sign in to Daily Bot"
     commands:
       - tapOn: "Sign up"
 - extendedWaitUntil:
-    visible: "Sign up for Rakazo"
+    visible: "Sign up for Daily Bot"
     timeout: 15000
 - waitForAnimationToEnd:
     timeout: 3000
 - takeScreenshot: 01-welcome
 - tapOn: "Sign in"
 - extendedWaitUntil:
-    visible: "Sign in to Rakazo"
+    visible: "Sign in to Daily Bot"
     timeout: 15000
 - waitForAnimationToEnd:
     timeout: 3000

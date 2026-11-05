@@ -137,6 +137,7 @@ export * from "./novita-sandbox.js";
 export * from "./novita-template.js";
 export * from "./openai-compatible-url.js";
 export * from "./openai-compatible-voice.js";
+export * from "./openai-realtime-call.js";
 export * from "./openai-voice.js";
 export * from "./openrouter-usage.js";
 export * from "./page-browser-session.js";

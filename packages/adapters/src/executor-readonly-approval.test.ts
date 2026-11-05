@@ -85,8 +85,10 @@ function fixture({
   checkerConnected = true,
   skipApprovals = false,
   trigger = "user",
+  clientNonce,
   secrets = [] as string[],
   prompt = "Read the item",
+  finalText,
   bot = {
     name: "Assistant",
     description: "Test assistant",
@@ -147,8 +149,10 @@ function fixture({
   checkerConnected?: boolean;
   skipApprovals?: boolean;
   trigger?: string;
+  clientNonce?: string;
   secrets?: string[];
   prompt?: string;
+  finalText?: string;
   bot?: { name: string; description: string };
   shutdownSignal?: AbortSignal;
 } = {}) {
@@ -198,6 +202,7 @@ function fixture({
     userId: "user-1",
     status: "queued",
     trigger,
+    clientNonce,
     sourceMessageId: sourceRole ? "source-1" : null,
     leaseFence: 0,
   };
@@ -532,9 +537,11 @@ function fixture({
         if (isApprovalPausedResult(await executeCall(call))) return;
       }
     }
+    if (finalText) yield { type: "text" as const, text: finalText };
     yield { type: "done" as const, text: "Done" };
   });
   const enqueue = vi.fn(async (_job: unknown) => undefined);
+  const append = vi.fn(async () => undefined);
   const executor = createRunExecutor({
     deploymentModelKey: "fixture-model-key",
     prisma: transactionalPrisma,
@@ -605,7 +612,7 @@ function fixture({
     },
     memoryProviders: { resolve: async () => null },
     events: {
-      append: vi.fn(async () => undefined),
+      append,
       notify: vi.fn(async () => undefined),
       pauseRunForInput,
       finalizeRun,
@@ -619,6 +626,8 @@ function fixture({
     userDevices,
   } as unknown as Parameters<typeof createRunExecutor>[0]);
   return {
+    finalizeRun,
+    append,
     prisma: transactionalPrisma,
     effects,
     web,
@@ -1056,6 +1065,20 @@ describe("connector read-only metadata and approval enforcement", () => {
       await f.run();
       expect(f.execute).toHaveBeenCalledOnce();
       expect(f.pauseRunForInput).not.toHaveBeenCalled();
+    });
+
+    it("requires on-screen approval for a live call handoff that sends a message", async () => {
+      const f = fixture({
+        catalog,
+        name: "demo_send_message",
+        clientNonce: "realtime-handoff:spoken-message",
+        skipApprovals: true,
+        rules: [{ effect: "always_allow", matchKind: "tool", matchValue: "demo_send_message" }],
+      });
+      await f.run();
+      expect(f.execute).not.toHaveBeenCalled();
+      expect(f.pauseRunForInput).toHaveBeenCalledOnce();
+      expect(isApprovalPausedResult(f.results[0])).toBe(true);
     });
 
     it("runs a webhook-triggered write in Never ask", async () => {
@@ -3803,4 +3826,74 @@ describe("a click that completes a purchase on a website", () => {
     expect(page.acts).toEqual([]);
     expect(f.pauseRunForInput).toHaveBeenCalledOnce();
   });
+});
+
+describe("live call tool delivery", () => {
+  it.each(["voice", "chat"] as const)(
+    "returns tool results through %s delivery",
+    async (delivery) => {
+      const f = fixture({
+        clientNonce:
+          delivery === "voice" ? "realtime-handoff:voice:source" : "realtime-handoff:source",
+        finalText: "Synthetic calendar availability.",
+      });
+      await f.run();
+      expect(f.execute).toHaveBeenCalledOnce();
+      const completion = f.finalizeRun.mock.calls[0]![0] as unknown as {
+        blocks: Array<{ kind: string }>;
+        spokenResult?: string;
+      };
+      expect(completion.blocks.some((block) => block.kind === "text")).toBe(delivery === "chat");
+      expect(completion.spokenResult).toBe(
+        delivery === "voice" ? "Synthetic calendar availability." : undefined,
+      );
+      if (delivery === "voice")
+        expect(f.append).not.toHaveBeenCalledWith(
+          expect.objectContaining({
+            type: "thread.progress",
+            payload: expect.objectContaining({ streaming: true }),
+          }),
+        );
+    },
+  );
+
+  it("discovers public pages without asking approval for a guessed destination", async () => {
+    const f = fixture({
+      name: "web_fetch",
+      builtin: true,
+      clientNonce: "realtime-handoff:voice:source",
+    });
+    const url = "https://example.test/public-page";
+    f.web.searchHits = [{ url, title: "Public source", snippet: "Synthetic evidence" }];
+    f.setCalls([
+      { name: "web_fetch", args: { url }, executionId: "guess" },
+      { name: "web_search", args: { query: "public question" }, executionId: "search" },
+      { name: "web_fetch", args: { url }, executionId: "read" },
+    ]);
+    await f.run();
+    expect(f.results[0]).toHaveProperty("error");
+    expect(f.fetchedUrls).toEqual([url]);
+    expect(f.pauseRunForInput).not.toHaveBeenCalled();
+  });
+
+  it.each(["deny", "require_approval"] as const)(
+    "respects an explicit %s rule for a searched page",
+    async (effect) => {
+      const f = fixture({
+        name: "web_search",
+        builtin: true,
+        clientNonce: "realtime-handoff:voice:source",
+        rules: [{ effect, matchKind: "tool", matchValue: "web_fetch" }],
+      });
+      const url = "https://example.test/public-page";
+      f.web.searchHits = [{ url, title: "Public source", snippet: "Synthetic evidence" }];
+      f.setCalls([
+        { name: "web_search", args: { query: "public question" }, executionId: "search" },
+        { name: "web_fetch", args: { url }, executionId: "read" },
+      ]);
+      await f.run();
+      expect(f.fetchedUrls).toEqual([]);
+      expect(f.pauseRunForInput.mock.calls).toHaveLength(effect === "require_approval" ? 1 : 0);
+    },
+  );
 });

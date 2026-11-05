@@ -1,4 +1,8 @@
-import { isBackgroundRunTrigger, redactSecrets } from "@rakazo/core";
+import {
+  isBackgroundRunTrigger,
+  isRealtimeVoiceHandoffRunNonce,
+  redactSecrets,
+} from "@rakazo/core";
 import {
   connectAgent,
   messageConnectedAgent,
@@ -73,6 +77,12 @@ export const messagingTools: ToolHandlers = {
   },
   async message_user(ctx, call) {
     const { deps, run } = ctx;
+    // Daily Bot: ordinary call answers return through the run's spoken result.
+    if (isRealtimeVoiceHandoffRunNonce(run.clientNonce))
+      return call.finish({
+        ok: true,
+        note: "Continue working. Put the complete result in your final reply for spoken delivery; no chat message was posted.",
+      });
     const { args } = call;
     const { reply } = ctx.state;
     const rawMessage = redactSecrets(String(args.message ?? ""), ctx.secrets);

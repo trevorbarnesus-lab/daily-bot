@@ -106,7 +106,7 @@ test("first run offers Rakazo Cloud first, with local and existing instances", a
   }
   const setup = await app.firstWindow();
 
-  await expect(setup.getByRole("heading", { name: "Welcome to Rakazo" })).toBeVisible();
+  await expect(setup.getByRole("heading", { name: "Welcome to Daily Bot" })).toBeVisible();
   await expect(setup.getByText("Choose which server this app should use.")).toBeVisible();
   await expect(setup.getByText("Rakazo Cloud")).toBeVisible();
   await expect(setup.getByText("This computer")).toBeVisible();
@@ -616,7 +616,7 @@ test("an unreachable saved server falls back to setup with a recovery message", 
   app = await launch();
   const setup = await app.firstWindow();
 
-  await expect(setup.getByRole("heading", { name: "Welcome to Rakazo" })).toBeVisible();
+  await expect(setup.getByRole("heading", { name: "Welcome to Daily Bot" })).toBeVisible();
   await expect(setup.getByRole("radio", { name: /Existing instance/ })).toBeChecked();
   await expect(setup.locator("#server-url")).toHaveValue(closedUrl);
   await expect(setup.locator("#status")).toContainText("Could not reconnect to the saved server.");
@@ -638,7 +638,7 @@ test("the native application menu can reopen setup without exposing setup IPC to
   });
   const setup = await setupPromise;
 
-  await expect(setup.getByRole("heading", { name: "Welcome to Rakazo" })).toBeVisible();
+  await expect(setup.getByRole("heading", { name: "Welcome to Daily Bot" })).toBeVisible();
   await expect(setup.locator("#status")).toBeEmpty();
 
   // Closing setup without saving restores the connected instance.

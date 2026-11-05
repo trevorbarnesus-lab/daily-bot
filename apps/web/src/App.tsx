@@ -28,7 +28,7 @@ import { markAfterPaint, markOnce } from "./lib/performance";
 import { lazyComponent } from "./lib/preload-recovery";
 import { QueryUserProvider, setQueryUser } from "./lib/query";
 import { getRemoteImagesEnabled, subscribeRemoteImages } from "./lib/remote-images-preference";
-import { hasSignedInBefore, rememberSignedIn } from "./lib/returning-user";
+import { rememberSignedIn } from "./lib/returning-user";
 import { rpc } from "./lib/rpc";
 import {
   holdAnonymousGate,
@@ -188,12 +188,8 @@ function SessionApp() {
             <Routes>
               <Route
                 path="/"
-                element={
-                  <Navigate
-                    to={user ? "/app" : hasSignedInBefore() ? "/sign-in" : "/sign-up"}
-                    replace
-                  />
-                }
+                // Daily Bot defaults to sign-in for an existing self-hosted installation.
+                element={<Navigate to={user ? "/app" : "/sign-in"} replace />}
               />
               <Route
                 path="/sign-in"

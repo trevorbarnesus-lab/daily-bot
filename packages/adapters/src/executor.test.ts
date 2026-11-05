@@ -161,7 +161,7 @@ describe("tool completion audit", () => {
           name: "destination.write",
           executionId: "call-1",
           durationMs: 4,
-          error: new Error("Bearer secret-token"),
+          error: new Error("HTTP 429 Bearer secret-token"),
         },
         ["secret-token"],
       ),
@@ -171,17 +171,22 @@ describe("tool completion audit", () => {
         type: "agent.tool.completed",
         payload: expect.objectContaining({
           outcome: "error",
-          error: "Bearer [redacted]",
+          error: "HTTP 429 Bearer [redacted]",
         }),
       }),
     );
     expect(sink.events).toEqual([
-      expect.objectContaining({ message: "agent.tool.completed", "tool.outcome": "error" }),
+      expect.objectContaining({
+        message: "agent.tool.completed",
+        "tool.outcome": "error",
+        "tool.error_category": "rate_limited",
+      }),
       expect.objectContaining({
         message: "agent tool completion audit append failed",
         "error.detail": "database unavailable",
       }),
     ]);
+    expect(JSON.stringify(sink.events)).not.toContain("secret-token");
     installLogger(createLogger({ service: "test", level: "off", sinks: [] }));
   });
 

@@ -126,7 +126,9 @@ describe("email languages", () => {
     for (const message of messages) {
       expect(message.html).toContain('lang="pl"');
       expect(message.html).toContain('dir="ltr"');
-      expect(Object.values(CATALOGS.pl!)).toContain(message.subject);
+      expect(
+        Object.values(CATALOGS.pl!).map((text) => text.replaceAll("Rakazo", "Daily Bot")),
+      ).toContain(message.subject);
       expect(message.text).not.toMatch(/\{\w+\}/);
     }
     for (const index of [0, 2]) {
@@ -178,9 +180,9 @@ describe("email languages", () => {
 
   it("writes a code email in Spanish", async () => {
     const message = await signInCodeEmail("user@example.test", "123456", "es");
-    expect(message.subject).toBe("Tu código para iniciar sesión en Rakazo");
+    expect(message.subject).toBe("Tu código para iniciar sesión en Daily Bot");
     expect(message.html).toContain('lang="es"');
-    expect(message.text).toContain("Introduce este código para iniciar sesión en Rakazo:");
+    expect(message.text).toContain("Introduce este código para iniciar sesión en Daily Bot:");
     expect(message.html).toContain('dir="ltr"');
   });
 
@@ -196,7 +198,7 @@ describe("email languages", () => {
       "Hola, Ana:",
     );
     const english = await welcomeEmail(user, "https://example.test/u");
-    expect(english.subject).toBe("Welcome to Rakazo");
+    expect(english.subject).toBe("Welcome to Daily Bot");
     expect(english.text).toContain("Hi Ana,");
     expect(english.text).toContain("Rakazo also has apps for iPhone");
   });

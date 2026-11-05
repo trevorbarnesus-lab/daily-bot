@@ -11,6 +11,7 @@ import { McpServersOverlay } from "./McpServersOverlay";
 
 const mocks = vi.hoisted(() => ({
   list: vi.fn(),
+  me: vi.fn().mockResolvedValue({}),
   create: vi.fn(),
   test: vi.fn(),
   update: vi.fn(),
@@ -20,6 +21,7 @@ const access = vi.hoisted(() => ({ all: vi.fn(), bots: vi.fn() }));
 const api = vi.hoisted(() => ({
   mcp: { servers: mocks, assignments: { all: access.all } },
   bots: { list: access.bots },
+  me: mocks.me,
 }));
 // One space, so no "Available in" choice appears.
 vi.mock("../components/integrations/space-availability", () => ({
@@ -168,6 +170,7 @@ vi.mock("@rakazo/ui-web", async () => {
 let client: QueryClient;
 beforeEach(() => {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  mocks.me.mockReset().mockResolvedValue({});
   access.all.mockReset().mockResolvedValue([]);
   mocks.agents.mockReset();
   access.bots.mockReset().mockResolvedValue([]);
@@ -221,6 +224,24 @@ it("offers stdio only where the deployment runs it, and still shows existing std
     await act(async () => root.render(overlay()));
     await act(async () => button("Add server")?.click());
     expect(host.textContent).toContain("STDIO");
+  } finally {
+    await act(async () => root.unmount());
+  }
+});
+
+it("uses current STDIO capability when the app bootstrap is stale", async () => {
+  mocks.list.mockResolvedValue([]);
+  mocks.me.mockResolvedValue({ mcpStdioEnabled: true });
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  try {
+    await act(async () => root.render(overlay(undefined, false)));
+    const add = Array.from(host.querySelectorAll("button")).find(
+      (button) => button.textContent === "Add server",
+    );
+    await act(async () => add?.click());
+    await vi.waitFor(() => expect(host.textContent).toContain("STDIO"));
+    expect(host.querySelector("#mcp-oauth-scope")).not.toBeNull();
   } finally {
     await act(async () => root.unmount());
   }
@@ -436,6 +457,10 @@ it("points a server that cannot register a client at the client ID fields", asyn
     expect(host.querySelector('[role="alert"]')?.textContent).toBe("Needs an OAuth client ID");
     expect(button("Save")).toBeDefined();
     expect(advancedOpen()).toBe(true);
+    expect(host.querySelector<HTMLInputElement>("#mcp-oauth-client-id")?.value).toBe("");
+    expect(host.querySelector("#mcp-oauth-scope")).not.toBeNull();
+    expect(host.querySelector("#mcp-oauth-params")).not.toBeNull();
+    expect(host.querySelector("#mcp-oauth-redirect-uri")).not.toBeNull();
 
     await act(async () =>
       host.querySelector<HTMLButtonElement>('button[aria-label="Back"]')?.click(),

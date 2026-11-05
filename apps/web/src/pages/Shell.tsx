@@ -1247,7 +1247,11 @@ function SpaceShell() {
       </main>
 
       <PageViewHost />
-      <CallCard onSettings={() => openSettings("voice")} />
+      <CallCard
+        onSettings={() => openSettings("voice")}
+        anchor={chatColumnRef}
+        panelOpen={Boolean(panel)}
+      />
       <IncomingCall
         bots={bootstrapMe?.phoneCallsEnabled ? bots : []}
         transcribe={voiceStatus ? Boolean(voiceStatus.transcribe) : undefined}

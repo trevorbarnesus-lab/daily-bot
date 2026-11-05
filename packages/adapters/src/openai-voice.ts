@@ -39,6 +39,10 @@ const OPENAI_VOICES: VoiceInfo[] = [
   { id: "verse", label: "Verse", description: "Expressive" },
 ];
 
+export function isOpenAIVoiceId(id: string | null): id is string {
+  return OPENAI_VOICES.some((voice) => voice.id === id);
+}
+
 export class OpenAIVoiceProvider implements VoiceProvider {
   describe(): AdapterDescriptor<VoiceCapabilities> {
     return {

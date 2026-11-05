@@ -8827,7 +8827,7 @@ describe("threads.answerCall and threads.declineCall", () => {
 });
 
 describe("threads.endCall", () => {
-  function fixture(duplicateMarker?: boolean, userSpoke = true) {
+  function fixture(duplicateMarker?: boolean, userSpoke = true, clientNonce?: string) {
     const created: { blocks?: unknown; clientNonce?: string }[] = [];
     const events: { type: string; payload: Record<string, unknown> }[] = [];
     const tx = {
@@ -8835,7 +8835,7 @@ describe("threads.endCall", () => {
       thread: { update: vi.fn().mockResolvedValue({ nextMessageSeq: 3, nextEventSeq: 5 }) },
       message: {
         findUnique: vi.fn().mockResolvedValue(null),
-        findFirst: vi.fn().mockResolvedValue(userSpoke ? { id: "utterance-1" } : null),
+        findFirst: vi.fn().mockResolvedValue(userSpoke ? { id: "utterance-1", clientNonce } : null),
         create: vi.fn(async ({ data }: { data: { blocks: unknown; clientNonce?: string } }) => {
           if (duplicateMarker) throw Object.assign(new Error("unique"), { code: "P2002" });
           created.push({ blocks: data.blocks, clientNonce: data.clientNonce });
@@ -8926,6 +8926,26 @@ describe("threads.endCall", () => {
     expect(enqueue).toHaveBeenCalledOnce();
   });
 
+  it.each(["user-utterance", "bot-greeting"])(
+    "closes a realtime %s transcript without repeating delegated work",
+    async (turn) => {
+      const { call, created, events, tx, enqueue } = fixture(
+        false,
+        true,
+        `call:call-1:realtime-${turn}`,
+      );
+      expect((await call()).status).toBe(200);
+      expect(created[0]?.clientNonce).toBe("call:call-1:marker");
+      expect(events.map((event) => event.type)).toEqual([
+        "thread.message.created",
+        "thread.call.ended",
+      ]);
+      expect(tx.task.create).not.toHaveBeenCalled();
+      expect(tx.run.create).not.toHaveBeenCalled();
+      expect(enqueue).not.toHaveBeenCalled();
+    },
+  );
+
   it("keeps the connected time the caller reported on the card", async () => {
     const { call, created } = fixture();
     const response = await call({ durationSeconds: 83 });
@@ -8942,7 +8962,7 @@ describe("threads.endCall", () => {
     expect(created).toEqual([]);
   });
 
-  it("is a no-op for a late hang-up with no user call utterance", async () => {
+  it("is a no-op for a late hang-up with no saved call utterance", async () => {
     const { call, created, events, tx, enqueue } = fixture(false, false);
     const response = await call();
     expect(response.status).toBe(200);
@@ -8951,7 +8971,7 @@ describe("threads.endCall", () => {
       expect.objectContaining({
         where: expect.objectContaining({
           threadId: "thread-1",
-          role: "user",
+          role: { in: ["user", "bot"] },
           clientNonce: { startsWith: "call:call-1:" },
         }),
       }),

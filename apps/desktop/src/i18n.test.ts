@@ -84,7 +84,7 @@ describe("desktop language", () => {
     expect(startDesktopLocale("es-MX", "en-US")).toBe("es");
     expect(t("Check for Updates…")).toBe("Buscar actualizaciones…");
     expect(t("Rakazo {version} is ready to install.", { version: "1.2.0" })).toBe(
-      "Rakazo 1.2.0 está listo para instalarse.",
+      "Daily Bot 1.2.0 está listo para instalarse.",
     );
     expect(desktopMessages()).toBe(ES_MESSAGES);
 
@@ -98,7 +98,7 @@ describe("desktop language", () => {
     expect(desktopMessages()).toBe(PL_MESSAGES);
     expect(t("Check for Updates…")).toBe("Sprawdź aktualizacje…");
     expect(t("Rakazo {version} is ready to install.", { version: "1.2.0" })).toBe(
-      "Rakazo 1.2.0 jest gotowe do zainstalowania.",
+      "Daily Bot 1.2.0 jest gotowe do zainstalowania.",
     );
   });
 

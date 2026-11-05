@@ -51,24 +51,36 @@ describe("call route gates", () => {
   });
 });
 
-describe("voice catalog", () => {
-  it.each([false, true])(
-    "advertises self-hosted speech only with custom endpoint access (%s)",
-    async (mcpAllowPrivateEndpoint) => {
-      vi.stubEnv("RAKAZO_OPENAI_COMPAT_ALLOW_PUBLIC", "0");
-      try {
-        const client = createRouterClient(
-          createRouter({ env: { mcpAllowPrivateEndpoint } } as unknown as RouterDeps),
-          { context: { actor } },
-        );
-        const catalog = await client.voice.catalog();
-        expect(catalog.some((entry) => entry.id === "openai-compatible")).toBe(
-          mcpAllowPrivateEndpoint,
-        );
-        expect(catalog.some((entry) => entry.id === "elevenlabs")).toBe(true);
-      } finally {
-        vi.unstubAllEnvs();
-      }
+describe("Daily Bot voice providers", () => {
+  it("offers only OpenAI even when custom model endpoints are enabled", async () => {
+    const client = createRouterClient(
+      createRouter({ env: { mcpAllowPrivateEndpoint: true } } as unknown as RouterDeps),
+      { context: { actor } },
+    );
+    expect((await client.voice.catalog()).map((entry) => entry.id)).toEqual(["openai"]);
+  });
+
+  it.each(["elevenlabs", "fish-audio", "cartesia", "openai-compatible"])(
+    "rejects %s before accessing credentials",
+    async (provider) => {
+      const query = vi.fn(() => {
+        throw new Error("Unexpected database access");
+      });
+      const client = createRouterClient(
+        createRouter({ prisma: new Proxy({}, { get: () => query }) } as unknown as RouterDeps),
+        { context: { actor } },
+      );
+      const scope = "account";
+      await expect(
+        client.voice.connect({ scope, provider, apiKey: "fake-key" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(
+        client.voice.setVoice({ scope, provider, voiceId: "voice" }),
+      ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+      await expect(client.voice.voices({ scope, provider })).rejects.toMatchObject({
+        code: "BAD_REQUEST",
+      });
+      expect(query).not.toHaveBeenCalled();
     },
   );
 });

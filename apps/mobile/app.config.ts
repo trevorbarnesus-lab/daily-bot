@@ -1,3 +1,4 @@
+import { brandProductCopy, PRODUCT_DISPLAY_NAME } from "@rakazo/core/product-display";
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
 const RELEASE_PROFILES = new Set(["production", "android-apk", "diagnostic"]);
@@ -22,7 +23,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     }
   }
 
-  let result = config as ExpoConfig;
+  let result: ExpoConfig = {
+    ...(config as ExpoConfig),
+    name: PRODUCT_DISPLAY_NAME,
+    ios: {
+      ...config.ios,
+      infoPlist: brandPermissions(config.ios?.infoPlist),
+    },
+    plugins: config.plugins?.map((plugin) => {
+      if (!Array.isArray(plugin) || plugin.length !== 2) return plugin;
+      const [name, options] = plugin;
+      return [name, brandPermissions(options)];
+    }),
+  };
   const rpId = passkeyRpId(process.env.EXPO_PUBLIC_API_URL);
   if (rpId) {
     // Native passkeys only work for domains the binary is associated with, so the app reads the
@@ -74,6 +87,19 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   }
   return result;
 };
+
+/** Apply the display name to permission prompts without modifying plugin IDs or settings. */
+function brandPermissions<T>(options: T): T {
+  if (!options || typeof options !== "object") return options;
+  return Object.fromEntries(
+    Object.entries(options).map(([key, value]) => [
+      key,
+      typeof value === "string" && /(?:Permission|UsageDescription)$/.test(key)
+        ? brandProductCopy(value)
+        : value,
+    ]),
+  ) as T;
+}
 
 /** The default server's host when native passkeys can use it: HTTPS and a domain name. */
 function passkeyRpId(apiUrl: string | undefined): string | null {

@@ -208,7 +208,14 @@ export function unattendedTriggerToolRequiresApproval(
   viaConnector: boolean,
   readOnly?: boolean,
 ): boolean {
-  if (trigger !== "webhook") return false;
+  return trigger === "webhook" && unattendedToolRequiresApproval(toolName, viaConnector, readOnly);
+}
+
+export function unattendedToolRequiresApproval(
+  toolName: string,
+  viaConnector: boolean,
+  readOnly?: boolean,
+): boolean {
   return viaConnector
     ? connectorToolRequiresApproval(toolName, readOnly)
     : !UNATTENDED_SAFE_BUILTIN_TOOLS.has(toolName);

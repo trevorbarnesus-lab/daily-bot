@@ -853,7 +853,7 @@ async function handleChannelEvent(
         idempotencyKey: `intro:${channel.id}`,
         kind: "intro",
         threadId: channel.threadId,
-        body: "Hi. This line hosts Rakazo personal agents. Some people in this group haven't messaged it yet; send any message to this line first if you want your own agent here.",
+        body: "Hi. This line hosts Daily Bot personal agents. Some people in this group haven't messaged it yet; send any message to this line first if you want your own agent here.",
       },
     ]);
     await deps.prisma.messagingChannel.update({
@@ -947,7 +947,7 @@ async function inviteMember(
         idempotencyKey: `invite:${channel.id}:${identity.id}`,
         kind: "dm",
         identityId: identity.id,
-        body: `"${name}" was linked to your Rakazo agent. Reply YES to let your agent join the conversation there, or NO to stay out.`,
+        body: `"${name}" was linked to your Daily Bot agent. Reply YES to let your agent join the conversation there, or NO to stay out.`,
       },
     ],
     skipDuplicates: true,

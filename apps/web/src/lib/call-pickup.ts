@@ -4,7 +4,7 @@ const TONE_MS = 1_000;
 const PAUSE_MS = 4_000;
 const TONE_GAIN = 0.08;
 /** Even an instant pickup rings once, so the call reads as a call and not a glitch. */
-const MIN_RING_MS = 2_000;
+export const MIN_RING_MS = 2_000;
 
 /**
  * Rings until the call can talk: at least one tone, and until the browser has
@@ -59,7 +59,7 @@ function delay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
-function startRingback(): { stop: () => void } {
+export function startRingback(): { stop: () => void } {
   const Context =
     globalThis.AudioContext ??
     (globalThis as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;

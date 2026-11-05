@@ -58,6 +58,64 @@ describePostgres("finalizing a run (PostgreSQL)", () => {
     }
   });
 
+  it("stores a spoken result atomically with completion, leaving only tool activity in chat", async () => {
+    const task = await system.task.create({
+      data: {
+        spaceId,
+        botId,
+        threadId,
+        userId,
+        prompt: "Read public opening hours",
+        status: "running",
+      },
+    });
+    const run = await system.run.create({
+      data: {
+        spaceId,
+        botId,
+        threadId,
+        userId,
+        taskId: task.id,
+        trigger: "user",
+        status: "running",
+        startedAt: new Date(),
+        leaseOwner: "worker-voice",
+        leaseFence: 1,
+      },
+    });
+    const attempt = await system.attempt.create({
+      data: { runId: run.id, fence: 1, status: "running" },
+    });
+    await runAsTenant({ userId, spaceId }, () =>
+      finalizeRun(prisma, {
+        spaceId,
+        botId,
+        threadId,
+        runId: run.id,
+        taskId: task.id,
+        attemptId: attempt.id,
+        leaseOwner: "worker-voice",
+        leaseFence: 1,
+        outcome: "completed",
+        blocks: [{ kind: "steps", steps: [{ label: "Web search", count: 1 }] }],
+        spokenResult: "The museum closes at six.",
+      }),
+    );
+    const messages = await system.message.findMany({
+      where: { runId: run.id },
+      select: { blocks: true },
+    });
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.blocks).toEqual([expect.objectContaining({ kind: "steps" })]);
+    const completed = await system.event.findFirstOrThrow({
+      where: { runId: run.id, type: "run.completed" },
+    });
+    expect(completed.payload).toEqual({ spokenResult: "The museum closes at six." });
+    expect((await system.run.findUniqueOrThrow({ where: { id: run.id } })).status).toBe(
+      "completed",
+    );
+  });
+
   it(
     "completes a run that waited behind a long thread read, steering included",
     async () => {

@@ -14,9 +14,7 @@ export type VoiceChatMessage = {
 export type VoiceChatGroup<T extends VoiceChatMessage = VoiceChatMessage> = {
   kind: "voiceChat";
   /**
-   * List key: `call:<callId>` for a call's first group, `call:<callId>:<n>` for the
-   * later segments a typed message split it into. Keying off the first message would
-   * change when an older page extends a segment, remounting the card.
+   * One stable key per call, including when written messages arrive during it.
    */
   key: string;
   callId: string;
@@ -31,17 +29,15 @@ export type ThreadItem<T extends VoiceChatMessage = VoiceChatMessage> =
 const SUMMARY_MAX = 120;
 
 /**
- * Collapses each run of consecutive call messages into one group: a user
- * message carrying the call's `callId`, or a bot reply to a run already in the
- * group. Anything else ends the run — a typed user message breaks the group
- * even when it reuses the run of a call turn. The bot's `voice_call` marker
- * closes the group, so the work it does after hanging up renders as chat.
+ * Keeps one transcript per call. Written messages stay in the chat while later
+ * spoken turns join the same card. Legacy bot replies join by run only while
+ * adjacent to that run's spoken turn. The hang-up marker ends that association.
  */
 export function groupVoiceChats<T extends VoiceChatMessage>(messages: T[]): ThreadItem<T>[] {
   const items: ThreadItem<T>[] = [];
   let open: VoiceChatGroup<T> | undefined;
   let openRunIds = new Set<string>();
-  const segments = new Map<string, number>();
+  const calls = new Map<string, VoiceChatGroup<T>>();
   for (const message of messages) {
     if (open) {
       const joinsByRun = Boolean(
@@ -65,19 +61,22 @@ export function groupVoiceChats<T extends VoiceChatMessage>(messages: T[]): Thre
       open = undefined;
     }
     if (message.callId) {
-      const segment = (segments.get(message.callId) ?? 0) + 1;
-      segments.set(message.callId, segment);
-      open = {
-        kind: "voiceChat",
-        key: segment === 1 ? `call:${message.callId}` : `call:${message.callId}:${segment}`,
-        callId: message.callId,
-        messages: [message],
-      };
+      open = calls.get(message.callId);
+      if (open) open.messages.push(message);
+      else {
+        open = {
+          kind: "voiceChat",
+          key: `call:${message.callId}`,
+          callId: message.callId,
+          messages: [message],
+        };
+        calls.set(message.callId, open);
+        items.push(open);
+      }
       // A request belongs to the calling run, not to a spoken turn.
       openRunIds = new Set(
         message.runId && message.blocks[0]?.kind !== "call_request" ? [message.runId] : [],
       );
-      items.push(open);
       if (isCallMarker(message)) {
         open.marker = message;
         open = undefined;

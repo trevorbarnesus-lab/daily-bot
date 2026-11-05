@@ -9,6 +9,11 @@
       "development": "./src/index.ts",
       "default": "./src/index.ts"
     },
+    "./product-display": {
+      "types": "./src/product-display.ts",
+      "development": "./src/product-display.ts",
+      "default": "./src/product-display.ts"
+    },
     "./user-error": {
       "types": "./src/user-error.ts",
       "development": "./src/user-error.ts",

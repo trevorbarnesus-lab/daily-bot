@@ -627,6 +627,8 @@ export function createRepos(
               notifyOnFinish: input.notifyOnFinish,
               dailyCheckIns: input.dailyCheckIns,
               fleetManagement: input.fleetManagement,
+              // Daily Bot requires new bots to opt in to cross-space communication.
+              crossSpaceCommunication: false,
               color: avatar.color,
               avatarSet,
               avatarSetPinned: input.avatarSetPinned ?? avatarSet !== defaultSet,

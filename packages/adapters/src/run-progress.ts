@@ -6,6 +6,7 @@ import {
   endsSentence,
   isBackgroundRunTrigger,
   isConversationalRun,
+  isRealtimeVoiceHandoffRunNonce,
   noteLastToolStep,
   redactSecrets,
   redactSecretsAfter,
@@ -133,7 +134,11 @@ export function nextProgressNonce(ctx: RunContext) {
 }
 
 export function canPublishDurableNarration(ctx: RunContext) {
-  return runPromotesMidTurnNarration(ctx.run.trigger) && canPublishDurableProgress(ctx.state.reply);
+  return (
+    !isRealtimeVoiceHandoffRunNonce(ctx.run.clientNonce) &&
+    runPromotesMidTurnNarration(ctx.run.trigger) &&
+    canPublishDurableProgress(ctx.state.reply)
+  );
 }
 
 export function flushPendingTools(reply: ReplyState) {
@@ -174,6 +179,7 @@ export async function flushProgress(ctx: RunContext) {
   // sentinel before the final outcome is known.
   if (
     ctx.scripted ||
+    isRealtimeVoiceHandoffRunNonce(run.clientNonce) ||
     !reply.pendingProgress ||
     run.trigger === "routine" ||
     isBackgroundRunTrigger(run.trigger) ||
@@ -216,7 +222,8 @@ export async function publishMidTurnNarration(ctx: RunContext, beforeConnectCard
   reply.pendingProgress = "";
   // Text the redactor still holds back belongs to the text just taken out.
   reply.redactor.skip();
-  const promotes = runPromotesMidTurnNarration(run.trigger);
+  const promotes =
+    !isRealtimeVoiceHandoffRunNonce(run.clientNonce) && runPromotesMidTurnNarration(run.trigger);
   if (
     text.length <= USER_PROGRESS_MESSAGE_MAX_LENGTH &&
     (canPublishDurableNarration(ctx) || (beforeConnectCard && promotes))

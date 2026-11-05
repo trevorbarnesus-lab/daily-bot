@@ -70,7 +70,6 @@ it("moves every bot with its own model onto the space default after a confirm", 
     botId: "b1",
     modelProvider: null,
     modelId: null,
-    thinkingLevel: null,
   });
   expect(bots.update).toHaveBeenCalledWith(expect.objectContaining({ botId: "b3" }));
   expect(host.textContent).toContain("2 bots now use the space default.");

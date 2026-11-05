@@ -4,6 +4,7 @@ import { VoiceAccountError } from "@rakazo/adapter-kit";
 import {
   createVoiceProvider,
   isFishSpeechModelId,
+  isOpenAIVoiceId,
   isVoiceProviderId,
   listVoiceCatalog,
   MAX_SPEAK_CHARS,
@@ -21,7 +22,7 @@ import type {
   VoiceCredential,
   VoiceStatus,
 } from "@rakazo/contracts";
-import { SettingsScopeSchema } from "@rakazo/contracts";
+import { OPENAI_VOICE_PROVIDER_ID, SettingsScopeSchema } from "@rakazo/contracts";
 import { speakable, toUtterances } from "@rakazo/core";
 import type { PrismaClient } from "@rakazo/db";
 import {
@@ -253,6 +254,8 @@ export async function resolveVoiceTarget(
   }
   const loaded = await loadDefaultVoiceCredential(deps, actor, input.scope);
   if (!loaded) throw new NoVoiceConfigured("key");
+  if (loaded.cred.provider === OPENAI_VOICE_PROVIDER_ID && !isOpenAIVoiceId(botVoiceId))
+    botVoiceId = null;
   const voiceId = input.voiceId || botVoiceId || loaded.cred.voiceId;
   if (!voiceId) throw new NoVoiceConfigured("voice");
   return { ...loaded, voiceId };

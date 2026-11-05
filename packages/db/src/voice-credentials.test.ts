@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "./client.js";
 import type { VoiceTarget } from "./voice-credentials.js";
 import {
@@ -13,7 +13,7 @@ const space: VoiceTarget = { ...scope, scope: "space" };
 const credential = {
   id: "credential",
   userId: "user",
-  provider: "elevenlabs",
+  provider: "openai",
   secretId: "secret",
   createdAt: new Date(0),
   updatedAt: new Date(0),
@@ -112,11 +112,14 @@ describe("selectVoicePreference", () => {
 });
 
 describe("voice that applies", () => {
+  beforeEach(() => vi.stubEnv("AGENT_RUNTIME", "pi"));
+  afterEach(() => vi.unstubAllEnvs());
+
   it("reads the account's default when the Space follows the account", async () => {
     const { prisma, userVoicePreference, spaceVoicePreference } = preferenceClient();
     userVoicePreference.findFirst.mockResolvedValue({
       credential,
-      isDefault: true,
+      isDefault: false,
       voiceId: "account-voice",
       speechModel: null,
     });
@@ -126,6 +129,11 @@ describe("voice that applies", () => {
       voiceId: "account-voice",
       speechModel: "",
     });
+    expect(userVoicePreference.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { credential: { provider: { in: ["openai"] } }, userId: "user" },
+      }),
+    );
     expect(spaceVoicePreference.findFirst).not.toHaveBeenCalled();
   });
 
@@ -146,7 +154,7 @@ describe("voice that applies", () => {
     });
     expect(spaceVoicePreference.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { isDefault: true, userId: "user", spaceId: "space" },
+        where: { credential: { provider: { in: ["openai"] } }, userId: "user", spaceId: "space" },
       }),
     );
     expect(userVoicePreference.findFirst).not.toHaveBeenCalled();
@@ -157,11 +165,11 @@ describe("voice that applies", () => {
       overridden: true,
     });
 
-    await findVoiceCredential(prisma, scope, "elevenlabs", "account");
+    await findVoiceCredential(prisma, scope, "openai", "account");
 
     expect(userVoicePreference.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { credential: { provider: "elevenlabs" }, userId: "user" },
+        where: { credential: { provider: "openai" }, userId: "user" },
       }),
     );
     expect(spaceVoicePreference.findFirst).not.toHaveBeenCalled();

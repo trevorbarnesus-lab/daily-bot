@@ -9,13 +9,16 @@ import {
   nextBotMessageHop,
   resolveBotAddress,
 } from "@rakazo/core";
-import type { PrismaClient } from "@rakazo/db";
+import type { Prisma, PrismaClient } from "@rakazo/db";
 import {
   appendEventInTransaction,
   createThreadMessageInTransaction,
+  crossSpaceCommunicationAllowed,
+  runAsSystem,
   withTransactionRetry,
 } from "@rakazo/db";
 import { getLogger } from "@rakazo/logging";
+import { crossSpaceBotPeers, crossSpacePeerWhere, senderOrganization } from "./cross-space-bots.js";
 import type { ExecutorDeps } from "./executor-deps.js";
 import { runLeaseFor } from "./run-messages.js";
 
@@ -63,8 +66,15 @@ export async function loadBotMessageContext(
   return { ...context, repliesToRequest };
 }
 
+type BotMessageDeps = Pick<ExecutorDeps, "prisma" | "runLease"> & {
+  events: Pick<ExecutorDeps["events"], "notify">;
+  jobs: Pick<ExecutorDeps["jobs"], "enqueue">;
+};
+
+const noBotFound = { ok: false, error: "no bot found with that id or name" } as const;
+
 export async function messageBot(
-  deps: Pick<ExecutorDeps, "prisma" | "events" | "jobs" | "runLease">,
+  deps: BotMessageDeps,
   run: {
     id: string;
     spaceId: string;
@@ -100,11 +110,30 @@ export async function messageBot(
     where: { spaceId: run.spaceId, userId: run.userId, archivedAt: null },
     select: { id: true, name: true, thread: { select: { id: true } } },
   });
-  const target = resolveBotAddress(candidates, {
-    botId: input.bot_id,
-    name: input.confirm_name,
-  });
-  if (!target) return { ok: false as const, error: "no bot found with that id or name" };
+  const botId = input.bot_id?.trim();
+  const name = input.confirm_name?.trim();
+  const local = resolveBotAddress(candidates, { botId, name });
+  let target = local && { ...local, spaceId: run.spaceId };
+  if (!target && (botId || name)) {
+    if (!botId && candidates.some((bot) => bot.name.toLowerCase() === name?.toLowerCase())) {
+      return noBotFound;
+    }
+    const peers = await crossSpaceBotPeers(
+      deps.prisma,
+      run,
+      botId ? { id: botId } : { name: { equals: name!, mode: "insensitive" } },
+      20,
+    );
+    if (peers.length > 1) {
+      const matches = peers.map((peer) => `${peer.name} (${peer.space.name}, bot_id: ${peer.id})`);
+      return {
+        ok: false as const,
+        error: `More than one bot matches. Use bot_id: ${matches.join(", ")}`,
+      };
+    }
+    target = peers[0];
+  }
+  if (!target) return noBotFound;
   if (target.id === sender.id) return { ok: false as const, error: "a bot cannot message itself" };
   if (!target.thread)
     return { ok: false as const, error: `${target.name} has no chat to deliver to` };
@@ -124,6 +153,10 @@ export async function messageBot(
   }
 
   const targetThreadId = target.thread.id;
+  const targetSpaceId = target.spaceId;
+  const crossSpace = targetSpaceId !== run.spaceId;
+  const inDeliveryScope = <T>(fn: () => Promise<T>) =>
+    crossSpace ? runAsSystem("Daily Bot same-owner delivery across spaces", fn) : fn();
 
   // A tool call can be re-executed after a lease expiry, so a delivery has to be
   // replayable: without this the recipient is messaged twice and woken twice.
@@ -163,16 +196,40 @@ export async function messageBot(
         replayed: true;
       };
   try {
+    const transact = <T>(operation: (tx: Prisma.TransactionClient) => Promise<T>) =>
+      inDeliveryScope(() => deps.prisma.$transaction(operation));
     committed = await withTransactionRetry(() =>
-      deps.prisma.$transaction(async (tx) => {
+      transact(async (tx) => {
         for (const threadId of [run.threadId, targetThreadId].sort()) {
           await tx.$queryRaw`SELECT id FROM threads WHERE id = ${threadId} FOR UPDATE`;
+        }
+        if (crossSpace) {
+          if (!(await crossSpaceCommunicationAllowed(tx, run.botId, target.id))) return noBotFound;
+          const organizationId = await senderOrganization(tx, run);
+          if (
+            !organizationId ||
+            !(await tx.bot.findFirst({
+              where: {
+                ...crossSpacePeerWhere(run, organizationId),
+                id: target.id,
+                spaceId: targetSpaceId,
+                thread: {
+                  is: { id: targetThreadId, userId: run.userId, spaceId: targetSpaceId },
+                },
+              },
+              select: { id: true },
+            }))
+          ) {
+            return noBotFound;
+          }
         }
         // Claim the delivery key inside the transaction so a concurrent retry
         // either sees the winner or loses on the unique (threadId, clientNonce).
         if (deliveryKey) {
           const already = await tx.message.findUnique({
-            where: { threadId_clientNonce: { threadId: targetThreadId, clientNonce: deliveryKey } },
+            where: {
+              threadId_clientNonce: { threadId: targetThreadId, clientNonce: deliveryKey },
+            },
             select: { id: true },
           });
           if (already) return { ok: true as const, replayed: true as const };
@@ -194,19 +251,21 @@ export async function messageBot(
         if (!senderStillRunning)
           return { ok: false as const, error: "source run is no longer active" };
 
-        // Re-read the target inside the transaction: it can be archived between
-        // resolving it above and committing here.
-        const stillAddressable = await tx.bot.findFirst({
-          where: {
-            id: target.id,
-            spaceId: run.spaceId,
-            userId: run.userId,
-            archivedAt: null,
-          },
-          select: { id: true },
-        });
-        if (!stillAddressable)
-          return { ok: false as const, error: `${target.name} is no longer available` };
+        if (!crossSpace) {
+          // Re-read the target inside the transaction: it can be archived between
+          // resolving it above and committing here.
+          const stillAddressable = await tx.bot.findFirst({
+            where: {
+              id: target.id,
+              spaceId: run.spaceId,
+              userId: run.userId,
+              archivedAt: null,
+            },
+            select: { id: true },
+          });
+          if (!stillAddressable)
+            return { ok: false as const, error: `${target.name} is no longer available` };
+        }
 
         // Echo into the sender's chat in the same transaction so a failed notify
         // cannot leave one side delivered and the other blank.
@@ -242,7 +301,7 @@ export async function messageBot(
         });
         const task = await tx.task.create({
           data: {
-            spaceId: run.spaceId,
+            spaceId: targetSpaceId,
             botId: target.id,
             threadId: targetThreadId,
             userId: run.userId,
@@ -252,7 +311,7 @@ export async function messageBot(
         });
         const nextRun = await tx.run.create({
           data: {
-            spaceId: run.spaceId,
+            spaceId: targetSpaceId,
             botId: target.id,
             threadId: targetThreadId,
             taskId: task.id,
@@ -265,7 +324,7 @@ export async function messageBot(
         });
         await tx.message.update({ where: { id: inbound.id }, data: { runId: nextRun.id } });
         const inboundEvent = await appendEventInTransaction(tx, {
-          spaceId: run.spaceId,
+          spaceId: targetSpaceId,
           threadId: targetThreadId,
           botId: target.id,
           type: "thread.message.created",
@@ -294,10 +353,12 @@ export async function messageBot(
     // Two concurrent retries can both miss the in-transaction lookup; the
     // loser hits the unique key. Treat that as a successful replay.
     if (deliveryKey && isUniqueConstraintError(error)) {
-      const winner = await deps.prisma.message.findUnique({
-        where: { threadId_clientNonce: { threadId: targetThreadId, clientNonce: deliveryKey } },
-        select: { id: true },
-      });
+      const winner = await inDeliveryScope(() =>
+        deps.prisma.message.findUnique({
+          where: { threadId_clientNonce: { threadId: targetThreadId, clientNonce: deliveryKey } },
+          select: { id: true },
+        }),
+      );
       if (winner) return replayed();
     }
     throw error;
@@ -326,7 +387,7 @@ export async function messageBot(
 
 /** Return a delegated run's terminal outcome unless it already sent one explicitly. */
 export async function returnBotMessageOutcome(
-  deps: Pick<ExecutorDeps, "prisma" | "events" | "jobs">,
+  deps: Omit<BotMessageDeps, "runLease">,
   run: {
     id: string;
     spaceId: string;
@@ -369,13 +430,15 @@ export async function returnBotMessageOutcome(
     await markBotOutcomeReturned(deps.prisma, run.id);
     return true;
   }
-  // messageBot reaches only active bots of this space and user, so an archived or deleted
-  // requester can never take the outcome. Handled: nothing is left to deliver.
+  // An archived, deleted or disabled requester cannot receive a terminal outcome.
   const requester = await deps.prisma.bot.findFirst({
     where: { id: source.fromBotId, spaceId: run.spaceId, userId: run.userId, archivedAt: null },
     select: { id: true },
   });
-  if (!requester) {
+  if (
+    !requester &&
+    !(await crossSpaceBotPeers(deps.prisma, run, { id: source.fromBotId }, 1)).length
+  ) {
     await markBotOutcomeReturned(deps.prisma, run.id);
     return true;
   }
@@ -395,8 +458,9 @@ export async function returnBotMessageOutcome(
       forceUnread: options?.forceUnread,
     },
   );
-  if (outcome.ok) await markBotOutcomeReturned(deps.prisma, run.id);
-  return outcome.ok;
+  const handled = outcome.ok || outcome.error === noBotFound.error;
+  if (handled) await markBotOutcomeReturned(deps.prisma, run.id);
+  return handled;
 }
 
 async function markBotOutcomeReturned(prisma: PrismaClient, runId: string) {

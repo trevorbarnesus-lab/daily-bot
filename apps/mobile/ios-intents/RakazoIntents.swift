@@ -61,7 +61,7 @@ struct AskBotIntent: AppIntent {
     }
     let sent = try await send(message, file: file, to: bot)
     guard let reply = try await reply(to: sent), !reply.isEmpty else {
-      return .result(value: "", dialog: "Sent. The reply will be in Rakazo.")
+      return .result(value: "", dialog: "Sent. The reply will be in Daily Bot.")
     }
     return .result(value: reply, dialog: "\(reply)")
   }
@@ -89,7 +89,7 @@ struct RunRoutineIntent: AppIntent {
 /// Opens a bot's chat through the app's own link, the same route a notification opens.
 struct OpenBotIntent: AppIntent {
   static let title: LocalizedStringResource = "Open Bot"
-  static let description = IntentDescription("Open a bot's chat in Rakazo.")
+  static let description = IntentDescription("Open a bot's chat in Daily Bot.")
   static let openAppWhenRun = true
 
   @Parameter(title: "Bot")
@@ -106,7 +106,7 @@ struct OpenBotIntent: AppIntent {
 /// modules/rakazo-voice-chat, since the chat link alone must never open the microphone.
 struct StartVoiceChatIntent: AppIntent {
   static let title: LocalizedStringResource = "Start Voice Chat"
-  static let description = IntentDescription("Open Rakazo and start a voice call with a bot.")
+  static let description = IntentDescription("Open Daily Bot and start a voice call with a bot.")
   static let openAppWhenRun = true
 
   @Parameter(title: "Bot", description: "Leave empty to use the chat you opened last.")
@@ -521,8 +521,8 @@ private enum MessageBotError: Error, CustomLocalizedStringResourceConvertible {
   var localizedStringResource: LocalizedStringResource {
     switch self {
     case .signedOut: "Sign in to Rakazo first."
-    case .noBot: "Open a chat in Rakazo first."
-    case .needsYou: "It needs you in Rakazo."
+    case .noBot: "Open a chat in Daily Bot first."
+    case .needsYou: "It needs you in Daily Bot."
     case .consentRequired: "Review AI data sharing in Account settings before continuing."
     case .server(let message?): "\(message)"
     case .server(nil): "Something went wrong. Try again."

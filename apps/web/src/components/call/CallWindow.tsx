@@ -1,7 +1,7 @@
 import { Dialog, DialogContent } from "@rakazo/ui-web/components/ui/dialog";
 import { useIsMobile } from "@rakazo/ui-web/hooks/use-mobile";
 import { cn } from "@rakazo/ui-web/lib/utils";
-import type { ReactNode } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useRef } from "react";
 
 /**
@@ -17,6 +17,7 @@ export function CallWindow({
   role: "dialog" | "alertdialog";
   "aria-label": string;
   className: string;
+  style?: CSSProperties;
   children: ReactNode;
 }) {
   const fullScreen = useIsMobile();

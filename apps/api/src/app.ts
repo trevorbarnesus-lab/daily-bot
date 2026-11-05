@@ -183,6 +183,7 @@ import { createMessagingReceipts } from "./messaging-receipts.js";
 import { mountMessagingWebhookRoutes } from "./messaging-webhook.js";
 import { monitoringRoutes } from "./monitoring.js";
 import { pluginSubmissionRoutes } from "./plugin-submissions.js";
+import { mountRealtimeCallRoutes } from "./realtime-call.js";
 import { sendReferralEmails } from "./referral-email.js";
 import { mountApiRequestBodyLimits, rpcBodyLimit } from "./request-body-limit.js";
 import { createRouter } from "./router.js";
@@ -647,6 +648,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
   const codexCatalog = new CodexCatalogCache();
   // One instance: chat runs submit videos and, in single-process mode, background polls finish them.
   const mediaGeneration = createMediaGenerationProvider();
+  const web = createWebProvider();
   const executor = createRunExecutor({
     billingEnabled: modelCreditsEnabled,
     maxUploadSizeBytes: env.maxUploadSizeBytes,
@@ -694,7 +696,7 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     phoneCallRingSeconds: env.phoneCallRingSeconds,
     phoneCallCooldownMinutes: env.phoneCallCooldownMinutes,
     messaging: messaging ? createMessagingContextLoader(prisma) : undefined,
-    web: createWebProvider(),
+    web,
     cloudAgent,
     userDevices: userDevicesOverride ?? userDevices,
     paymentWallet,
@@ -1052,6 +1054,11 @@ async function buildApp(overrides: CreateAppOverrides): Promise<AppHandles> {
     if (actor) enrichLogContext({ "user.id": actor.userId, "space.id": actor.spaceId });
     return actor;
   });
+  if (env.phoneCallsEnabled) {
+    mountRealtimeCallRoutes(app, { prisma, secrets, events, jobs, realtime }, (c) =>
+      sessionActor(c.req.raw),
+    );
+  }
   mountAccountImportRoute(
     app,
     {

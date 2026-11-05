@@ -74,6 +74,17 @@ export function toolCompletionAuditPayload(
   return payload;
 }
 
+// Server logs get a stable category. Connector text can include credentials, URLs, and user data.
+function toolErrorCategory(error: string): string {
+  if (/\b(?:429|rate[_ -]?limit(?:ed| exceeded)?|too many requests)\b/i.test(error))
+    return "rate_limited";
+  if (/\b(?:quota|insufficient[_ -]quota|resource[_ -]exhausted)\b/i.test(error)) return "quota";
+  if (/\b(?:408|504|timeout|timed out|deadline exceeded)\b/i.test(error)) return "timeout";
+  if (/\b(?:401|403|unauthorized|forbidden|invalid[_ -]token|invalid API key)\b/i.test(error))
+    return "authorization";
+  return "other";
+}
+
 export async function appendToolCompletionAudit(
   deps: { events: Pick<ThreadEvents, "append"> },
   target: { spaceId: string; threadId: string; botId: string; runId: string },
@@ -89,6 +100,9 @@ export async function appendToolCompletionAudit(
     tool: payload.name,
     "tool.outcome": payload.outcome,
     "tool.duration_ms": payload.durationMs,
+    ...(payload.outcome === "error" && typeof payload.error === "string"
+      ? { "tool.error_category": toolErrorCategory(payload.error) }
+      : {}),
   });
   try {
     await deps.events.append({

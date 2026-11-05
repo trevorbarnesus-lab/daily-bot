@@ -16,7 +16,7 @@ test("new users answer the signup survey before their first chat", async ({ page
 
   await signup(page, `survey-${Date.now()}@rakazo.test`, "password12", "Survey");
 
-  await expect(page.getByRole("heading", { name: "Welcome to Rakazo" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Welcome to Daily Bot" })).toBeVisible();
   await expect(page).toHaveURL(/\/onboarding\/survey$/);
   await expect(page.getByRole("combobox", { name: "How big is your team?" })).toHaveCount(0);
   await captureScreenshot(page, testInfo, "01-signup-survey");

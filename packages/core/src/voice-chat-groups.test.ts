@@ -48,7 +48,7 @@ describe("groupVoiceChats", () => {
   );
 
   it.each([false, true])(
-    "closes a segment that starts with a hang-up marker (typed break: %s)",
+    "keeps a single call card when its hang-up follows written chat (typed break: %s)",
     (typedBreak) => {
       const opening = message({ role: "user", callId: "call-1", runId: "run-1" });
       const typed = message({ role: "user" });
@@ -69,12 +69,14 @@ describe("groupVoiceChats", () => {
       const wrapUp = message({ role: "bot", runId: "run-1" });
       const page = [...(typedBreak ? [opening, typed] : []), marker, wrapUp];
       const items = groupVoiceChats(page);
-      const group = items.at(-2);
+      const group = items[0];
 
       expect(items.map((item) => item.kind)).toEqual(
-        typedBreak ? ["voiceChat", "message", "voiceChat", "message"] : ["voiceChat", "message"],
+        typedBreak ? ["voiceChat", "message", "message"] : ["voiceChat", "message"],
       );
-      expect(group?.kind === "voiceChat" && group.messages).toEqual([marker]);
+      expect(group?.kind === "voiceChat" && group.messages).toEqual(
+        typedBreak ? [opening, marker] : [marker],
+      );
       expect(group?.kind === "voiceChat" && group.marker).toBe(marker);
       expect(items.at(-1)).toEqual({ kind: "message", message: wrapUp });
       expect(latestSpokenCallReply(page, "call-1")).toBeUndefined();
@@ -114,7 +116,7 @@ describe("groupVoiceChats", () => {
       const spokenReply = message({ role: "bot", runId: "voice-run" });
       expect(
         groupVoiceChats([request, reply, spoken, spokenReply]).map((item) => item.kind),
-      ).toEqual(["voiceChat", "message", "voiceChat"]);
+      ).toEqual(["voiceChat", "message"]);
     },
   );
 
@@ -131,14 +133,14 @@ describe("groupVoiceChats", () => {
     ]);
   });
 
-  it("breaks a group when a typed message lands between call turns", () => {
+  it("keeps one group when a typed message lands between call turns", () => {
     const items = groupVoiceChats([
       message({ role: "user", callId: "call-1" }),
       message({ role: "user" }),
       message({ role: "user", callId: "call-1" }),
     ]);
 
-    expect(items.map((item) => item.kind)).toEqual(["voiceChat", "message", "voiceChat"]);
+    expect(items.map((item) => item.kind)).toEqual(["voiceChat", "message"]);
   });
 
   it("does not speak a typed concurrent reply into the call", () => {
@@ -175,20 +177,20 @@ describe("groupVoiceChats", () => {
     expect(latestSpokenCallReply([callTurn, callReply, marker, wrapUp], "call-1")).toBeUndefined();
   });
 
-  it("numbers the segments a typed message split a call into, and keeps them across pages", () => {
+  it("keeps a stable call key across written replies and earlier pages", () => {
     const opening = message({ role: "user", callId: "call-1" });
     const resumed = message({ role: "user", callId: "call-1" });
     const page = [opening, message({ role: "user" }), resumed];
 
     expect(
       groupVoiceChats(page).flatMap((item) => (item.kind === "voiceChat" ? [item.key] : [])),
-    ).toEqual(["call:call-1", "call:call-1:2"]);
+    ).toEqual(["call:call-1"]);
 
     // An older page lands in front and extends the first segment: the keys hold.
     const older = [message({ role: "bot", callId: "call-1" }), ...page];
     expect(
       groupVoiceChats(older).flatMap((item) => (item.kind === "voiceChat" ? [item.key] : [])),
-    ).toEqual(["call:call-1", "call:call-1:2"]);
+    ).toEqual(["call:call-1"]);
   });
 
   it("joins the bot reply to the call by runId", () => {
