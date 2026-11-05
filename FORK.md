@@ -53,6 +53,7 @@ Record each landed fork change with its purpose, files, migrations, new settings
 | Call tool delivery | `apps/api/src/{realtime-chat-handoff,realtime-call}.ts`, realtime adapter, `packages/core/src/call-nonce.ts`, `packages/adapters/src/{run-turn,run-progress,run-tool-gate,run-tools-messaging}.ts`, `packages/db/src/events.ts` | None | None | Roll back the app image. Spoken results use an optional encrypted completion-event payload field; upstream ignores it. Tasks, tool activity and transcripts retain their stored formats. |
 | Current call tool discovery | `apps/api/src/realtime-call.ts`, `packages/adapters/src/openai-realtime-call.ts`, and focused call tests | None | None | Roll back the app image. Only session instructions and the ephemeral provider function name change; saved chats, tasks and settings keep their formats. |
 | Update existing call task delivery | `apps/api/src/{realtime-task-delivery,realtime-chat-handoff,realtime-call}.ts`, realtime adapter, `packages/db/src/events.ts`, and focused delivery tests | None | None | Roll back the app image. Delivery uses the existing fork run nonce and ordinary encrypted messages/events; upstream can still read the records. |
+| Blank call task IDs | `apps/api/src/realtime-chat-handoff.ts`, its tests, and `packages/adapters/src/openai-realtime-call.ts` | None | None | Roll back the app image. Only voice function dispatch, failure notices and safe status logging change; tasks, chat, credentials and settings retain their formats. |
 
 ## Fork features to track
 
@@ -176,3 +177,42 @@ A second recorded call began with voice delivery, changed the existing task to c
 the hang-up confirmation and then closed. The worker finished using its original voice-mode
 snapshot; the saved choice still produced one chat result after hang-up. The delivery tool
 called silently and the application confirmed only after the change committed.
+
+
+## Blank call task IDs
+
+A recorded call through the actual call route reproduced the lookup refusal: the voice model
+emitted `use_bot_tools` with `delivery: "voice"` and `task_id: ""`. The bridge interpreted
+that empty optional argument as a request about existing work, returned `unknown_task`, and
+started a response with tools disabled. No lookup ran, and the voice model invented an
+explanation that live information was unavailable.
+
+Empty, whitespace-only and null task IDs now follow the normal new-work path. Only a
+nonblank task ID selects existing work, and existing-task delivery still reuses its original
+run. The public new-work function accepts only delivery; `send_task_to_chat` remains the
+separate function for changing an existing result's destination. Compatibility handling
+still recognizes actual task IDs supplied to the work function.
+
+Unknown existing-task status checks, missing-transcript and queue failures use an isolated retry notice,
+instead of generating an explanation from old conversation history. Safe status logs
+record queued, reused and rejected handoffs without transcripts, audio or credentials.
+No schema, settings, model selection, permissions or encryption changes are included.
+
+Regression tests replay the observed blank-ID shape with both delivery modes, whitespace
+and null values, alongside the existing task reuse and duplicate-delivery tests. Recorded
+WebRTC tests use temporary development fixtures and the actual route, including greeting,
+saved speech, main-model tools and spoken/written delivery. Successful routing does not
+by itself verify retrieved facts or subjective audio quality.
+
+
+Validation for this patch: 23 focused call/check tests, 640 executor tests and nine
+PostgreSQL delivery/completion tests passed. The `linux/amd64` app image built successfully.
+Two recorded weather calls through the actual route completed one tool run each and posted
+no written answer; one replay explicitly injected the previously failing empty task ID.
+A recorded request to post in chat also replayed the empty ID and produced one written
+result. The local preview then passed the existing upstream-populated synthetic fixture
+checks for sign-in, settings, bots, chats, memory, routines and credential decryption.
+
+The API typecheck passed. A broader adapters-package typecheck reports an existing tuple
+indexing error in `executor-readonly-approval.test.ts`; that unchanged test is outside this
+patch. Source retrieval quality and production readiness are not certified by these checks.

@@ -108,6 +108,8 @@ Order is the build order (Wave 0). Codex asks you when it needs something.
 - [x] **Natural spoken tool discovery (Nov 5).** Make the current web/app/action bridge explicit and verify ordinary spoken questions through WebRTC, including missing-detail clarification.
 - [x] **Shared call tool delivery (Nov 5).** Voice results by default for every tool handoff; chat for requested posts and substantial written work. Reuse normal tool activity and permissions, discover public sources before fetching, and retain spoken results without duplicate written replies.
 
+- [x] **Blank call task IDs (Nov 5).** Normalize blank optional IDs, keep new work separate from existing-task delivery, and return truthful bridge failure notices.
+
 ## 7. Keys to keep out of git (public repo)
 - [ ] OpenAI key, Google OAuth client secret, APNs `.p8`, Expo token, `.env`. **Suggestion:** a `.env` outside the repo plus your password manager; Codex confirms `.env*` is git-ignored on day one.
 

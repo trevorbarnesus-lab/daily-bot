@@ -282,3 +282,53 @@ it("waits for a delivery change racing with completion and confirms only the com
   expect(JSON.stringify(send.mock.calls)).not.toContain("Saved result, not a second lookup.");
   expect(submit).toHaveBeenCalledOnce();
 });
+
+it.each([
+  { delivery: "voice", task_id: "" },
+  { delivery: "chat", task_id: "" },
+  { delivery: "voice", task_id: "   " },
+  { delivery: "chat", task_id: "   " },
+  { delivery: "voice", task_id: null },
+  { delivery: "chat", task_id: null },
+])("starts new work for a blank optional task ID: %j", async (args) => {
+  const submit = vi.fn().mockResolvedValue({ id: "new-task", cursor: 0 });
+  const sendToChat = vi.fn();
+  const send = vi.fn();
+  const watch = vi.fn();
+  const bridge = createRealtimeChatHandoff({
+    signal: new AbortController().signal,
+    submit,
+    sendToChat,
+    send,
+    watch,
+    check: vi.fn(),
+  });
+  request(bridge, "use_bot_tools", {
+    ...args,
+    parameters: { query: "A public information lookup" },
+  });
+  await vi.waitFor(() => expect(watch).toHaveBeenCalledOnce());
+  expect(submit).toHaveBeenCalledExactlyOnceWith("audio", args.delivery);
+  expect(sendToChat).not.toHaveBeenCalled();
+  const output = send.mock.calls.find(([event]) => event.item?.type === "function_call_output")![0];
+  expect(JSON.parse(output.item.output)).toEqual({ status: "queued", task: "new-task" });
+});
+
+it("does not invent a capability explanation for an unknown existing task", () => {
+  const submit = vi.fn();
+  const send = vi.fn();
+  const bridge = createRealtimeChatHandoff({
+    signal: new AbortController().signal,
+    submit,
+    send,
+    sendToChat: vi.fn(),
+    watch: vi.fn(),
+    check: vi.fn(),
+  });
+  request(bridge, "use_bot_tools", { delivery: "voice", task_id: "unknown-task" });
+  expect(submit).not.toHaveBeenCalled();
+  const output = send.mock.calls.find(([event]) => event.item?.type === "function_call_output")![0];
+  expect(JSON.parse(output.item.output)).toEqual({ status: "unknown_task" });
+  const response = send.mock.calls.find(([event]) => event.type === "response.create")![0];
+  expect(response.response).toMatchObject({ input: [], tool_choice: "none" });
+});

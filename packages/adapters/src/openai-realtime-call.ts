@@ -56,11 +56,6 @@ export async function openOpenAIRealtimeCall(input: {
             type: "object",
             properties: {
               delivery: { type: "string", enum: ["chat", "voice"] },
-              task_id: {
-                type: "string",
-                description:
-                  "Existing queued task ID when only requesting chat delivery of its result. Omit for genuinely new work.",
-              },
             },
             required: ["delivery"],
             additionalProperties: false,

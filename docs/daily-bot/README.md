@@ -55,6 +55,9 @@ Daily Bot is a personal, self-hosted fork of [Rakazo](https://github.com/elie222
   sources first; explicit permissions and approval for consequential actions remain in effect.
 
 
+- Empty optional call task IDs now start normal work instead of taking the existing-task
+  status path. Actual-route recordings reproduced this failure and verify the correction.
+
 ## Key facts
 - Domain: `bot.dailybooth.cc`. Bundle ids: `cc.dailybooth.bot`, `.widgets`, `.notifications`.
 - iOS via TestFlight (own Apple + Expo accounts); Android = sideloaded APK only (no Google Play).

@@ -73,3 +73,8 @@ All times America/New_York. Newest last. Revisit any decision by adding a new da
   confirming that work continues after hang-up. Persist the choice and serialize it with
   completion. Posting an already finished voice result uses its saved answer once, without
   rerunning the work. Keep new independent requests separate and retain the original source.
+
+- **Blank call task IDs (Nov 5).** Treat empty optional task IDs as new work; only an actual
+  task ID selects existing work. Keep delivery changes on their dedicated function. Use
+  isolated retry notices for bridge failures so they cannot become invented access claims.
+  Preserve the existing models, transcript flow, tool permissions and task deduplication.

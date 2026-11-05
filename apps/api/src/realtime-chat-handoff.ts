@@ -341,16 +341,16 @@ export function createRealtimeChatHandoff(input: {
           delay(8_000, false, { ref: false, signal: input.signal }),
         ]));
       if (!turn || !available) {
-        result(callId, {
-          status: "missing_transcript",
-          instruction: "Ask the caller to repeat the request.",
-        });
+        getLogger().warn("voice.handoff", { status: "missing_transcript" });
+        result(callId, { status: "missing_transcript" }, { speak: false });
+        notice("I missed part of that. Could you repeat the request?");
         return;
       }
       const first = !turn.run;
       turn.delivery ??= args.delivery === "chat" ? "chat" : "voice";
       turn.run ??= input.submit(turn.id, turn.delivery);
       const run = await turn.run;
+      getLogger().info("voice.handoff", { status: first ? "queued" : "already_queued" });
       tasks.set(run.id, turn);
       result(
         callId,
@@ -380,10 +380,10 @@ export function createRealtimeChatHandoff(input: {
         });
       }
     } catch {
-      result(callId, {
-        status: "could_not_queue",
-        instruction: "Tell the caller that work could not start.",
-      });
+      if (input.signal.aborted) return;
+      getLogger().warn("voice.handoff", { status: "could_not_queue" });
+      result(callId, { status: "could_not_queue" }, { speak: false });
+      notice("I couldn't start that request. Please try again.");
     }
   }
 
@@ -503,24 +503,29 @@ export function createRealtimeChatHandoff(input: {
                   result(item.call_id, { error: "Tool arguments must be a JSON object." });
                   continue;
                 }
+                // Optional provider arguments can be emitted as empty strings. Those do not
+                // identify existing work; a new request must still start its normal tools.
+                const taskId = typeof args.task_id === "string" ? args.task_id.trim() : "";
+                if (taskId) args.task_id = taskId;
                 if (
                   item.name === REALTIME_CHAT_DELIVERY_TOOL ||
-                  (item.name === REALTIME_CHAT_HANDOFF_TOOL &&
-                    args.delivery === "chat" &&
-                    typeof args.task_id === "string")
+                  (item.name === REALTIME_CHAT_HANDOFF_TOOL && args.delivery === "chat" && taskId)
                 )
                   void sendToChat(item.call_id, args);
-                else if (
-                  item.name === REALTIME_CHAT_HANDOFF_TOOL &&
-                  typeof args.task_id === "string"
-                ) {
+                else if (item.name === REALTIME_CHAT_HANDOFF_TOOL && taskId) {
                   if (!calls.has(item.call_id)) {
                     calls.add(item.call_id);
-                    const task = tasks.get(args.task_id);
-                    result(item.call_id, {
-                      task: args.task_id,
-                      ...(task?.lastUpdate ?? { status: task ? "queued" : "unknown_task" }),
-                    });
+                    const task = tasks.get(taskId);
+                    if (task)
+                      result(item.call_id, {
+                        task: taskId,
+                        ...(task.lastUpdate ?? { status: "queued" }),
+                      });
+                    else {
+                      getLogger().warn("voice.handoff", { status: "unknown_task" });
+                      result(item.call_id, { status: "unknown_task" }, { speak: false });
+                      notice("I couldn't find that task. Could you repeat the request?");
+                    }
                   }
                 } else if (item.name === REALTIME_CHAT_HANDOFF_TOOL)
                   void delegate(item.call_id, turn, args);
