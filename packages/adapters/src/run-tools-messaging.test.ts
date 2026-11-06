@@ -3,6 +3,7 @@ import type { RunContext } from "./run-context.js";
 import type { ToolCall } from "./run-tool-gate.js";
 
 const mocks = vi.hoisted(() => ({
+  peers: vi.fn(async (..._args: unknown[]) => [] as Array<Record<string, unknown>>),
   messageBot: vi.fn(async (..._args: unknown[]) => ({
     ok: true as const,
     botId: "bot-servo",
@@ -24,6 +25,7 @@ const mocks = vi.hoisted(() => ({
     },
   })),
 }));
+vi.mock("./cross-space-bots.js", () => ({ crossSpaceBotPeers: mocks.peers }));
 vi.mock("./bot-messages.js", () => ({ messageBot: mocks.messageBot }));
 vi.mock("./group-handoff.js", () => ({ handoffToGroupBot: mocks.handoffToGroupBot }));
 vi.mock("./run-tools-files.js", () => ({
@@ -297,4 +299,56 @@ describe("sending files to another bot", () => {
       error: "site: not found, or your computer could not be read. Nothing was sent.",
     });
   });
+});
+
+it("files a cross-space message's copies under the permitted recipient space", async () => {
+  vi.clearAllMocks();
+  const { ctx, findMany } = context("other-computer");
+  findMany.mockResolvedValueOnce([]);
+  mocks.peers.mockResolvedValueOnce([
+    {
+      id: "other-bot",
+      name: "Remote",
+      spaceId: "other-space",
+      computerId: "other-computer",
+      computerSwitching: false,
+    },
+  ]);
+  await messagingTools.message_bot!(
+    ctx,
+    callWith("message_bot", { bot_id: "other-bot", files: ["site.zip"] }),
+  );
+  expect(mocks.peers).toHaveBeenCalledWith(ctx.deps.prisma, ctx.run, { id: "other-bot" }, 2);
+  expect(mocks.saveWorkspaceFile).toHaveBeenCalledWith(
+    ctx,
+    expect.anything(),
+    "site.zip",
+    expect.any(Uint8Array),
+    { botId: "other-bot", spaceId: "other-space" },
+  );
+  expect(mocks.messageBot).toHaveBeenCalledWith(
+    expect.anything(),
+    expect.anything(),
+    expect.anything(),
+    expect.objectContaining({
+      bot_id: "other-bot",
+      files: [expect.objectContaining({ artifactId: "artifact-zip" })],
+    }),
+  );
+});
+
+it("reads no file when the cross-space permission lookup has no eligible recipient", async () => {
+  vi.clearAllMocks();
+  const { ctx, findMany } = context("other-computer");
+  findMany.mockResolvedValueOnce([]);
+  mocks.peers.mockResolvedValueOnce([]);
+  await expect(
+    messagingTools.message_bot!(
+      ctx,
+      callWith("message_bot", { bot_id: "other-bot", files: ["site.zip"] }),
+    ),
+  ).resolves.toEqual({ error: "no bot found with that id or name. Nothing was sent." });
+  expect(mocks.readWorkspaceFile).not.toHaveBeenCalled();
+  expect(mocks.saveWorkspaceFile).not.toHaveBeenCalled();
+  expect(mocks.messageBot).not.toHaveBeenCalled();
 });

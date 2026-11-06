@@ -10,6 +10,7 @@ import {
   DEFAULT_COMPATIBLE_STT_MODEL,
   DEFAULT_COMPATIBLE_TTS_MODEL,
   OPENAI_COMPATIBLE_PROVIDER_ID,
+  OPENAI_VOICE_PROVIDER_ID,
 } from "@rakazo/contracts";
 import { fetchFresh } from "@rakazo/core/query";
 import {
@@ -28,6 +29,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import { XIcon } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
+import { LiveCallModelPicker } from "../components/call/LiveCallModelPicker";
 import { useSpaceQueries } from "../lib/query";
 import { useBoundSpaceId, useSpaceRpc } from "../lib/space-rpc";
 import { speaker } from "../lib/tts";
@@ -56,8 +58,12 @@ export function VoiceSettingsOverlay({
   const scoped = { input: { scope } };
   // A revisit opens with what this scope showed last time and refreshes it in the background.
   const [cached] = useState(() => {
-    const catalog = queryClient.getQueryData(queries.voice.catalog.queryKey());
-    const credentials = queryClient.getQueryData(queries.voice.credentials.queryKey(scoped));
+    const catalog = queryClient
+      .getQueryData(queries.voice.catalog.queryKey())
+      ?.filter((entry) => entry.id === OPENAI_VOICE_PROVIDER_ID);
+    const credentials = queryClient
+      .getQueryData(queries.voice.credentials.queryKey(scoped))
+      ?.filter((entry) => entry.provider === OPENAI_VOICE_PROVIDER_ID);
     const status = queryClient.getQueryData(queries.voice.status.queryKey(scoped));
     if (!catalog || !credentials || !status) return null;
     const provider = selectedProvider(catalog, [status.provider]);
@@ -166,11 +172,15 @@ export function VoiceSettingsOverlay({
 
   /** After a change (every call but the one on open) it never reuses a read sent before it. */
   async function refresh(nextProvider?: string, { keepForm = false, reuse = false } = {}) {
-    const [nextCatalog, nextCredentials, nextStatus] = await Promise.all([
+    const [allCatalog, allCredentials, nextStatus] = await Promise.all([
       fetchFresh(queryClient, queries.voice.catalog.queryOptions(), { reuse }),
       fetchFresh(queryClient, queries.voice.credentials.queryOptions(scoped), { reuse }),
       fetchFresh(queryClient, queries.voice.status.queryOptions(scoped), { reuse }),
     ]);
+    const nextCatalog = allCatalog.filter((entry) => entry.id === OPENAI_VOICE_PROVIDER_ID);
+    const nextCredentials = allCredentials.filter(
+      (entry) => entry.provider === OPENAI_VOICE_PROVIDER_ID,
+    );
     const current = providerRef.current;
     const selected = selectedProvider(nextCatalog, [nextProvider, current, nextStatus.provider]);
     setCatalog(nextCatalog);
@@ -359,6 +369,9 @@ export function VoiceSettingsOverlay({
 
   const content = (
     <>
+      <p className="mb-5 text-body text-muted-foreground">
+        Daily Bot uses OpenAI for voice. Other providers can be added on request.
+      </p>
       {loading && !catalog.length ? (
         <div className="grid place-items-center py-10">
           <Spinner
@@ -369,7 +382,7 @@ export function VoiceSettingsOverlay({
       ) : null}
       {error ? <p className="mb-4 text-body text-destructive">{error}</p> : null}
       {notice ? <p className="mb-4 text-body text-success">{notice}</p> : null}
-      {catalog.length ? (
+      {catalog.length > 1 ? (
         <Field>
           <FieldLabel htmlFor={providerSelectId}>
             <Trans>Provider</Trans>
@@ -402,6 +415,11 @@ export function VoiceSettingsOverlay({
           <Trans>Disconnect Self-hosted</Trans>
         </Button>
       ) : null}
+      {scope === "account" ? (
+        <div className="mt-5">
+          <LiveCallModelPicker />
+        </div>
+      ) : null}
       {selected ? (
         <>
           {managesConnection ? (
@@ -427,9 +445,7 @@ export function VoiceSettingsOverlay({
               ) : null}
               {keyless ? null : (
                 <Field className="mt-5">
-                  <FieldLabel htmlFor={apiKeyId}>
-                    <Trans>API key</Trans>
-                  </FieldLabel>
+                  <FieldLabel htmlFor={apiKeyId}>OpenAI API key</FieldLabel>
                   <Input
                     id={apiKeyId}
                     type="password"

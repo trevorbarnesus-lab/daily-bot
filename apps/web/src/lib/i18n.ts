@@ -1,4 +1,5 @@
 import { i18n } from "@lingui/core";
+import { brandProductCopy } from "@rakazo/core";
 import { applyUiDirection } from "./apply-ui-direction";
 import { desktopBridge } from "./desktop";
 import { importChunk } from "./preload-recovery";
@@ -46,7 +47,31 @@ export function getActiveUiLocale(): UiLocale {
 
 async function loadCatalog(locale: UiLocale): Promise<CatalogMessages> {
   const { messages } = await importChunk(catalogLoaders[locale]);
-  return messages;
+  // Keep Lingui IDs and ICU arguments intact. Apply the name to catalog text before rendering.
+  return Object.fromEntries(
+    Object.entries(messages).map(([id, message]) => [
+      id,
+      typeof message === "string" ? brandProductCopy(message) : brandMessageTokens(message),
+    ]),
+  );
+}
+
+type CompiledMessage = Exclude<CatalogMessages[string], string>;
+
+function brandMessageTokens(tokens: CompiledMessage): CompiledMessage {
+  return tokens.map((token) => {
+    if (typeof token === "string") return brandProductCopy(token);
+    const [name, kind, options] = token;
+    if (kind !== "plural" && kind !== "select" && kind !== "selectordinal") return token;
+    if (!options || typeof options !== "object") return token;
+    const branded = Object.fromEntries(
+      Object.entries(options).map(([key, value]) => [
+        key,
+        Array.isArray(value) ? brandMessageTokens(value) : value,
+      ]),
+    );
+    return [name, kind, branded];
+  });
 }
 
 function activateLoaded(locale: UiLocale, messages: CatalogMessages): UiLocale {

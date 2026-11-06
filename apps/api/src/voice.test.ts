@@ -649,7 +649,7 @@ describe("synthesizeVoice", () => {
     expect(synthesize.mock.calls[0]?.[0]).toMatchObject({ model: undefined });
   });
 
-  it("speaks with the account voice when asked for it in a Space that overrides voice", async () => {
+  it("honors the scoped OpenAI voice when a bot still has a legacy voice ID", async () => {
     const synthesize = vi
       .fn()
       .mockResolvedValue({ bytes: new Uint8Array(), mimeType: "audio/mpeg" });
@@ -661,29 +661,30 @@ describe("synthesizeVoice", () => {
       credential: {
         id: "cred-1",
         userId: actor.userId,
-        provider: "fish-audio",
+        provider: "openai",
         secretId: "secret-1",
         createdAt: new Date(0),
         updatedAt: new Date(0),
       },
     });
     const prisma = {
+      bot: { findFirst: vi.fn().mockResolvedValue({ voiceId: "legacy-voice-id" }) },
       spaceSettingOverride: { findUnique: vi.fn().mockResolvedValue({ setting: "voice" }) },
-      userVoicePreference: { findFirst: vi.fn().mockResolvedValue(preference("account-voice")) },
-      spaceVoicePreference: { findFirst: vi.fn().mockResolvedValue(preference("space-voice")) },
+      userVoicePreference: { findFirst: vi.fn().mockResolvedValue(preference("alloy")) },
+      spaceVoicePreference: { findFirst: vi.fn().mockResolvedValue(preference("marin")) },
       secret: {
         findFirst: vi.fn().mockResolvedValue({ id: "secret-1", ciphertext: "cipher" }),
       },
     };
     const deps = {
       prisma,
-      secrets: { load: vi.fn().mockReturnValue("fish-key"), put: vi.fn() },
+      secrets: { load: vi.fn().mockReturnValue("fake-openai-key"), put: vi.fn() },
     } as unknown as VoiceDeps;
 
-    await synthesizeVoice(deps, actor, { text: "Hello", scope: "account" });
-    expect(synthesize.mock.calls[0]?.[0]).toMatchObject({ voiceId: "account-voice" });
-    await synthesizeVoice(deps, actor, { text: "Hello" });
-    expect(synthesize.mock.calls[1]?.[0]).toMatchObject({ voiceId: "space-voice" });
+    await synthesizeVoice(deps, actor, { text: "Hello", botId: "bot-1", scope: "account" });
+    expect(synthesize.mock.calls[0]?.[0]).toMatchObject({ voiceId: "alloy" });
+    await synthesizeVoice(deps, actor, { text: "Hello", botId: "bot-1" });
+    expect(synthesize.mock.calls[1]?.[0]).toMatchObject({ voiceId: "marin" });
   });
 
   it.each([

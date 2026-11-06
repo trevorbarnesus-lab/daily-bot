@@ -9,6 +9,7 @@ import {
   settleCallRequest,
 } from "@rakazo/adapters";
 import type { ActionApprovalRule, Actor, ChatAlert, Me, SettingsScope } from "@rakazo/contracts";
+import { OPENAI_VOICE_PROVIDER_ID } from "@rakazo/contracts";
 import {
   approvalModeFromPreference,
   approvalPreferenceFromMode,
@@ -18,6 +19,7 @@ import { urlSite } from "@rakazo/core/egress";
 import {
   auditLogOrganization,
   commitBotUpdate,
+  dailyBotVoiceProviders,
   findAutoReviewPreference,
   findDefaultVoiceCredential,
   findModelCredential,
@@ -45,17 +47,15 @@ import { firstModelConnectAnalytics } from "../model-connect-analytics.js";
 import type { RouterDeps } from "../router.js";
 import { withSerializableRetry } from "../serializable-retry.js";
 import {
+  catalogEntry,
   disconnectVoiceCredential,
-  listVoiceCatalog,
   loadDefaultVoiceCredential,
   loadVoiceCredential,
   persistVoiceCredential,
   prepareVoice,
   toVoiceCredential,
   toVoiceStatus,
-  updateVoiceSpeechModel,
   voiceContext,
-  voiceCredentialServer,
   voiceProviderFor,
 } from "../voice.js";
 import type { RouterContext } from "./context.js";
@@ -478,9 +478,7 @@ export function accountRoutes(ctx: RouterContext) {
       }),
     },
     voice: {
-      catalog: authed.voice.catalog.handler(async () =>
-        listVoiceCatalog({ allowPrivateEndpoint: deps.env?.mcpAllowPrivateEndpoint }),
-      ),
+      catalog: authed.voice.catalog.handler(async () => [catalogEntry(OPENAI_VOICE_PROVIDER_ID)!]),
       status: authed.voice.status.handler(async ({ context, input }) => {
         const cred = await findDefaultVoiceCredential(deps.prisma, context.actor, input?.scope);
         return toVoiceStatus(cred);
@@ -489,26 +487,27 @@ export function accountRoutes(ctx: RouterContext) {
         const target = await voicePreferenceTarget(deps.prisma, context.actor, input?.scope);
         const [rows, preferences] = await Promise.all([
           deps.prisma.userVoiceCredential.findMany({
-            where: { userId: context.actor.userId },
+            where: {
+              userId: context.actor.userId,
+              provider: { in: dailyBotVoiceProviders() },
+            },
             orderBy: newestVoiceCredentialOrder,
           }),
           listVoicePreferences(deps.prisma, target),
         ]);
-        return Promise.all(
-          rows.map(async (row) => {
-            const preference = preferences.find((saved) => saved.credentialId === row.id);
-            return toVoiceCredential({
-              ...row,
-              isDefault: preference?.isDefault ?? false,
-              voiceId: preference?.voiceId ?? "",
-              speechModel: preference?.speechModel ?? "",
-              server: await voiceCredentialServer(deps, context.actor, row),
-            });
-          }),
-        );
+        return rows.map((row) => {
+          const preference = preferences.find((saved) => saved.credentialId === row.id);
+          return toVoiceCredential({
+            ...row,
+            isDefault: preference?.isDefault ?? false,
+            voiceId: preference?.voiceId ?? "",
+            speechModel: preference?.speechModel ?? "",
+          });
+        });
       }),
-      connect: authed.voice.connect.handler(async ({ context, input }) =>
-        persistVoiceCredential(deps, context.actor, {
+      connect: authed.voice.connect.handler(async ({ context, input }) => {
+        requireDailyBotVoiceProvider(input.provider);
+        return persistVoiceCredential(deps, context.actor, {
           provider: input.provider,
           plaintext: input.apiKey,
           voiceId: input.voiceId,
@@ -518,12 +517,13 @@ export function accountRoutes(ctx: RouterContext) {
           sttModel: input.sttModel,
           scope: input.scope,
           signal: context.signal,
-        }),
-      ),
+        });
+      }),
       disconnect: authed.voice.disconnect.handler(async ({ context, input }) =>
         disconnectVoiceCredential(deps, context.actor, { provider: input.provider }),
       ),
       setVoice: authed.voice.setVoice.handler(async ({ context, input }) => {
+        if (input.provider) requireDailyBotVoiceProvider(input.provider);
         const cred = await withSerializableRetry(() =>
           deps.prisma.$transaction(
             async (tx) => {
@@ -547,10 +547,13 @@ export function accountRoutes(ctx: RouterContext) {
         );
         return toVoiceStatus(cred);
       }),
-      setSpeechModel: authed.voice.setSpeechModel.handler(async ({ context, input }) =>
-        updateVoiceSpeechModel(deps, context.actor, input),
-      ),
+      setSpeechModel: authed.voice.setSpeechModel.handler(async () => {
+        throw new ORPCError("BAD_REQUEST", {
+          message: "Daily Bot currently supports OpenAI for voice.",
+        });
+      }),
       voices: authed.voice.voices.handler(async ({ context, input }) => {
+        if (input.provider) requireDailyBotVoiceProvider(input.provider);
         // A named provider lists its voices even before the copy has a default voice.
         const row = input.provider
           ? await loadVoiceCredential(deps, context.actor, input.provider, input.scope)
@@ -566,6 +569,14 @@ export function accountRoutes(ctx: RouterContext) {
       ),
     },
   };
+}
+
+function requireDailyBotVoiceProvider(provider: string) {
+  if (!dailyBotVoiceProviders().includes(provider)) {
+    throw new ORPCError("BAD_REQUEST", {
+      message: "Daily Bot currently supports OpenAI for voice.",
+    });
+  }
 }
 
 function approvalRuleDto(row: {

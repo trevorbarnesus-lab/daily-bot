@@ -137,7 +137,9 @@ describe("finalizeRun", () => {
             attemptId: "attempt-1",
             leaseOwner: "worker-1",
             leaseFence: 1,
-            ...(outcome === "failed" ? { outcome, error: "failed" } : { outcome, blocks: [] }),
+            ...(outcome === "failed"
+              ? { outcome, error: "failed" }
+              : { outcome, blocks: [], spokenResult: "Synthetic spoken result" }),
           },
           { publish } as never,
         ),
@@ -147,6 +149,16 @@ describe("finalizeRun", () => {
         where: { runId: "run-1", kind: "runtime_checkpoint", status: "runtime_checkpoint" },
       });
       expect(createEvent).toHaveBeenCalledOnce();
+      expect(createEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            payload:
+              outcome === "completed"
+                ? { spokenResult: "Synthetic spoken result" }
+                : { error: "failed" },
+          }),
+        }),
+      );
       expect(publish).toHaveBeenCalledOnce();
       // A finished run never resumes to read a waiting secret answer.
       expect(tx.secret.deleteMany).toHaveBeenCalledWith({

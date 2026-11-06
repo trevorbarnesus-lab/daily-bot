@@ -62,8 +62,12 @@ describe("VoiceChatCard", () => {
     container?.remove();
     const opened = render("user-1");
     expect(opened.querySelector("button")?.getAttribute("aria-expanded")).toBe("true");
-    expect(opened.querySelector('[data-message-id="user-1"]')?.textContent).toBe("book the flight");
-    expect(opened.querySelector('[data-message-id="bot-1"]')?.textContent).toBe("Booked.");
+    expect(
+      opened.querySelector('[data-message-id="user-1"]')?.querySelector("p")?.textContent,
+    ).toBe("book the flight");
+    expect(opened.querySelector('[data-message-id="bot-1"]')?.querySelector("p")?.textContent).toBe(
+      "Booked.",
+    );
     expect(opened.querySelector('[data-message-id="marker-1"]')).not.toBeNull();
 
     act(() => {

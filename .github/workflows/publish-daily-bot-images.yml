@@ -1,0 +1,50 @@
+name: Publish Daily Bot images
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-daily-bot-images
+
+jobs:
+  publish:
+    if: github.repository == 'trevorbarnesus-lab/daily-bot' && github.ref == 'refs/heads/daily-bot'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    env:
+      IMAGE_REPOSITORY: ghcr.io/${{ github.repository }}
+      IMAGE_TAG: sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Build both images
+        run: |
+          docker buildx build --load --platform linux/amd64 \
+            --file infra/compose/Dockerfile --build-arg "GIT_SHA=$GITHUB_SHA" \
+            --tag "$IMAGE_REPOSITORY/app:$IMAGE_TAG" .
+          docker buildx build --load --platform linux/amd64 \
+            --file infra/sandboxes/computer/Dockerfile \
+            --tag "$IMAGE_REPOSITORY/computer:$IMAGE_TAG" infra/sandboxes/computer
+      - name: Scan the app image
+        run: |
+          container="$(docker create "$IMAGE_REPOSITORY/app:$IMAGE_TAG")"
+          trap 'docker rm "$container" >/dev/null; rm -f "$RUNNER_TEMP/daily-bot-rootfs.tar"' EXIT
+          docker export --output "$RUNNER_TEMP/daily-bot-rootfs.tar" "$container"
+          bash infra/compose/check-image.sh "$RUNNER_TEMP/daily-bot-rootfs.tar"
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3.7.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Publish matching image tags
+        run: |
+          docker push "$IMAGE_REPOSITORY/app:$IMAGE_TAG"
+          docker push "$IMAGE_REPOSITORY/computer:$IMAGE_TAG"

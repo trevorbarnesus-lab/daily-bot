@@ -47,9 +47,7 @@ export function SpaceBotsModelNotice({ refreshKey }: { refreshKey?: unknown }) {
     setFailed([]);
     // Each bot saves on its own; any that fail are named and stay listed to retry.
     const results = await Promise.allSettled(
-      pinned.map((bot) =>
-        rpc.bots.update({ botId: bot.id, modelProvider: null, modelId: null, thinkingLevel: null }),
-      ),
+      pinned.map((bot) => rpc.bots.update({ botId: bot.id, modelProvider: null, modelId: null })),
     );
     setMoved(results.filter((result) => result.status === "fulfilled").length);
     setFailed(

@@ -1,3 +1,4 @@
+import { brandProductCopy } from "@rakazo/core/product-display";
 import type { ConfigContext, ExpoConfig } from "expo/config";
 
 const RELEASE_PROFILES = new Set(["production", "android-apk", "diagnostic"]);
@@ -22,7 +23,26 @@ export default ({ config }: ConfigContext): ExpoConfig => {
     }
   }
 
-  let result = config as ExpoConfig;
+  const name = brandProductCopy(config.name);
+  const infoPlist = brandPermissions(config.ios?.infoPlist);
+  const mappedPlugins = config.plugins?.map((plugin) => {
+    if (!Array.isArray(plugin) || plugin.length !== 2) return plugin;
+    const options = brandPermissions(plugin[1]);
+    return options === plugin[1] ? plugin : [plugin[0], options];
+  });
+  const plugins = mappedPlugins?.every((plugin, index) => plugin === config.plugins?.[index])
+    ? config.plugins
+    : mappedPlugins;
+  let result: ExpoConfig =
+    name === config.name && infoPlist === config.ios?.infoPlist && plugins === config.plugins
+      ? config
+      : {
+          ...config,
+          name,
+          ...(infoPlist !== config.ios?.infoPlist ? { ios: { ...config.ios, infoPlist } } : {}),
+          ...(plugins !== config.plugins ? { plugins: plugins as ExpoConfig["plugins"] } : {}),
+        };
+
   const rpId = passkeyRpId(process.env.EXPO_PUBLIC_API_URL);
   if (rpId) {
     // Native passkeys only work for domains the binary is associated with, so the app reads the
@@ -74,6 +94,23 @@ export default ({ config }: ConfigContext): ExpoConfig => {
   }
   return result;
 };
+
+/** Apply the display name to permission prompts without modifying plugin IDs or settings. */
+function brandPermissions<T>(options: T): T {
+  if (!options || typeof options !== "object") return options;
+  const entries = Object.entries(options);
+  const branded = Object.fromEntries(
+    entries.map(([key, value]) => [
+      key,
+      typeof value === "string" && /(?:Permission|UsageDescription)$/.test(key)
+        ? brandProductCopy(value)
+        : value,
+    ]),
+  ) as T;
+  return entries.every(([key, value]) => (branded as Record<string, unknown>)[key] === value)
+    ? options
+    : branded;
+}
 
 /** The default server's host when native passkeys can use it: HTTPS and a domain name. */
 function passkeyRpId(apiUrl: string | undefined): string | null {

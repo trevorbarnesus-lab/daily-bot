@@ -1,4 +1,5 @@
 import type { SettingsScope } from "@rakazo/contracts";
+import { OPENAI_VOICE_PROVIDER_ID } from "@rakazo/contracts";
 import type { PrismaClient } from "./client.js";
 import { newestCredentialOrder } from "./model-credentials.js";
 import { settingsTarget } from "./space-settings.js";
@@ -24,7 +25,14 @@ export async function voicePreferenceTarget(
   return { userId, spaceId, scope: await settingsTarget(prisma, scope, "voice", requested) };
 }
 
-type PreferenceFilter = { isDefault?: boolean; credential?: { provider: string } };
+type PreferenceFilter = { credential: { provider: string | { in: string[] } } };
+
+export function dailyBotVoiceProviders(): string[] {
+  // Keep the offline call fixtures available in scripted installations.
+  return process.env.AGENT_RUNTIME === "scripted"
+    ? [OPENAI_VOICE_PROVIDER_ID, "scripted"]
+    : [OPENAI_VOICE_PROVIDER_ID];
+}
 
 function findPreferenceWithCredential(
   prisma: VoicePreferenceClient,
@@ -168,7 +176,10 @@ export async function findDefaultVoiceCredential(
   requested?: SettingsScope,
 ) {
   const target = await voicePreferenceTarget(prisma, scope, requested);
-  const preference = await findPreferenceWithCredential(prisma, target, { isDefault: true });
+  // A saved OpenAI voice can still apply when an unsupported provider used to be the default.
+  const preference = await findPreferenceWithCredential(prisma, target, {
+    credential: { provider: { in: dailyBotVoiceProviders() } },
+  });
   return preference ? withVoicePreference(preference) : null;
 }
 

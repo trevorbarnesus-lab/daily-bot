@@ -14,6 +14,14 @@ describe("translate", () => {
     expect(translate(undefined, "{count} files", { count: 3 })).toBe("3 files");
   });
 
+  it("brands translated copy without changing a bot name inserted into it", () => {
+    const branded = { "Open {name} in Rakazo": "Abrir {name} en Rakazo" };
+    expect(translate(branded, "Open {name} in Rakazo", { name: "Rakazo Helper" })).toBe(
+      "Abrir Rakazo Helper en Daily Bot",
+    );
+    expect(translate(undefined, "Rakazo Cloud")).toBe("Rakazo Cloud");
+  });
+
   it("reads only the catalog's own entries", () => {
     expect(translate(catalog, "constructor")).toBe("constructor");
     expect(translate(catalog, "toString")).toBe("toString");

@@ -132,6 +132,32 @@ it("loads the board chunk only after bootstrap enables the route", async () => {
   }
 });
 
+it.each([
+  ["/", "Auth in"],
+  ["/sign-up", "Auth up"],
+])("shows the expected auth page for a new signed-out visitor at %s", async (path, authPage) => {
+  vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  const container = document.createElement("div");
+  const root = createRoot(container);
+  capability.session = { isPending: false, data: null, error: null };
+  const storedFlag = vi.spyOn(Storage.prototype, "getItem").mockReturnValue(null);
+  try {
+    await act(async () =>
+      root.render(
+        <MemoryRouter initialEntries={[path]}>
+          <App />
+        </MemoryRouter>,
+      ),
+    );
+    expect(container.textContent).toBe(authPage);
+  } finally {
+    await act(async () => root.unmount());
+    storedFlag.mockRestore();
+    capability.session = null;
+    vi.unstubAllGlobals();
+  }
+});
+
 it("keeps the sign-in page mounted while a signed-out session refetches", async () => {
   vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   const container = document.createElement("div");

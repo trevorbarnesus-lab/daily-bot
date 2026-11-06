@@ -97,7 +97,7 @@ function oauthActionLabel(server: McpServer, pending: boolean): string {
 export function McpServersOverlay({
   onClose,
   editServerId,
-  stdioEnabled,
+  stdioEnabled: initialStdioEnabled,
 }: {
   onClose: () => void;
   /** Opens with this server's form, as an import's setup checklist does. */
@@ -134,6 +134,12 @@ export function McpServersOverlay({
   const [testingIds, setTestingIds] = useState<Set<string>>(() => new Set());
   const queries = useSpaceQueries();
   const queryClient = useQueryClient();
+  const me = useQuery({
+    ...queries.me.queryOptions(),
+    refetchOnMount: "always",
+    refetchOnWindowFocus: "always",
+  });
+  const stdioEnabled = me.data?.mcpStdioEnabled ?? initialStdioEnabled;
   const serversOptions = queries.mcp.servers.list.queryOptions();
   const serversQuery = useQuery({
     ...serversOptions,
@@ -252,10 +258,8 @@ export function McpServersOverlay({
       ...server.fileKeys.map((name) => ({ ...emptyEnvRow(), name, file: true })),
     ];
     if (rows.length > 0) setEnvRows(rows);
-    if (showOAuthClient) {
-      setAdvancedOpen(true);
-      setFocusOAuthClient(true);
-    }
+    setAdvancedOpen(showOAuthClient || server.transport !== "stdio");
+    if (showOAuthClient) setFocusOAuthClient(true);
   }
 
   useEffect(() => {
@@ -635,7 +639,7 @@ export function McpServersOverlay({
                         pressed={row.file}
                         onPressedChange={(file) => updateEnvRow(row.id, { file })}
                       >
-                        <Trans>File</Trans>
+                        <Trans>Send as file</Trans>
                       </Toggle>
                       <Button
                         type="button"
@@ -730,60 +734,56 @@ export function McpServersOverlay({
                   placeholder={t`Stored encrypted`}
                 />
               </Field>
-              {oauthClientId.trim() ? (
-                <>
-                  {transport === "stdio" ? (
-                    <Field>
-                      <FieldLabel htmlFor="mcp-oauth-authorization-server">
-                        <Trans>Authorization server</Trans>
-                      </FieldLabel>
-                      <Input
-                        id="mcp-oauth-authorization-server"
-                        type="url"
-                        autoComplete="off"
-                        value={oauthAuthorizationServer}
-                        onChange={(e) => setOauthAuthorizationServer(e.target.value)}
-                        placeholder="https://accounts.google.com"
-                      />
-                    </Field>
-                  ) : null}
-                  <Field>
-                    <FieldLabel htmlFor="mcp-oauth-scope">
-                      <Trans>Scopes (optional)</Trans>
-                    </FieldLabel>
-                    <Input
-                      id="mcp-oauth-scope"
-                      autoComplete="off"
-                      value={oauthScope}
-                      onChange={(e) => setOauthScope(e.target.value)}
-                      placeholder="openid email"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="mcp-oauth-params">
-                      <Trans>Authorization parameters (optional)</Trans>
-                    </FieldLabel>
-                    <Input
-                      id="mcp-oauth-params"
-                      autoComplete="off"
-                      value={oauthParams}
-                      onChange={(e) => setOauthParams(e.target.value)}
-                      placeholder="access_type=offline&prompt=consent"
-                    />
-                  </Field>
-                  <Field>
-                    <FieldLabel htmlFor="mcp-oauth-redirect-uri">
-                      <Trans>Redirect URI</Trans>
-                    </FieldLabel>
-                    <Input
-                      id="mcp-oauth-redirect-uri"
-                      readOnly
-                      value={mcpOAuthRedirectUri()}
-                      onFocus={(e) => e.target.select()}
-                    />
-                  </Field>
-                </>
+              {transport === "stdio" ? (
+                <Field>
+                  <FieldLabel htmlFor="mcp-oauth-authorization-server">
+                    <Trans>Authorization server</Trans>
+                  </FieldLabel>
+                  <Input
+                    id="mcp-oauth-authorization-server"
+                    type="url"
+                    autoComplete="off"
+                    value={oauthAuthorizationServer}
+                    onChange={(e) => setOauthAuthorizationServer(e.target.value)}
+                    placeholder="https://accounts.google.com"
+                  />
+                </Field>
               ) : null}
+              <Field>
+                <FieldLabel htmlFor="mcp-oauth-scope">
+                  <Trans>Scopes (optional)</Trans>
+                </FieldLabel>
+                <Input
+                  id="mcp-oauth-scope"
+                  autoComplete="off"
+                  value={oauthScope}
+                  onChange={(e) => setOauthScope(e.target.value)}
+                  placeholder="openid email"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="mcp-oauth-params">
+                  <Trans>Authorization parameters (optional)</Trans>
+                </FieldLabel>
+                <Input
+                  id="mcp-oauth-params"
+                  autoComplete="off"
+                  value={oauthParams}
+                  onChange={(e) => setOauthParams(e.target.value)}
+                  placeholder="access_type=offline&prompt=consent"
+                />
+              </Field>
+              <Field>
+                <FieldLabel htmlFor="mcp-oauth-redirect-uri">
+                  <Trans>Redirect URI</Trans>
+                </FieldLabel>
+                <Input
+                  id="mcp-oauth-redirect-uri"
+                  readOnly
+                  value={mcpOAuthRedirectUri()}
+                  onFocus={(e) => e.target.select()}
+                />
+              </Field>
               <Field orientation="horizontal">
                 <Checkbox
                   id="mcp-verbatim-results"
@@ -938,7 +938,14 @@ export function McpServersOverlay({
           </DialogTitle>
           <div className="flex items-center gap-1">
             {formOpen ? null : (
-              <Button type="button" size="sm" onClick={() => setAdding(true)}>
+              <Button
+                type="button"
+                size="sm"
+                onClick={() => {
+                  setAdding(true);
+                  setAdvancedOpen(transport !== "stdio");
+                }}
+              >
                 <Plus />
                 <Trans>Add server</Trans>
               </Button>

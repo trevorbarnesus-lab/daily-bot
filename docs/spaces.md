@@ -21,8 +21,9 @@ Nothing crosses between spaces unless you allow it:
 - [Saved credentials](./bot-secrets.md), when the space keeps its own.
 - Skills a bot saves.
 
-Bots only talk to bots in the same space, unless you turn on **Allow cross-space bot communication**
-in a bot's settings.
+In Daily Bot, turn on **Allow cross-space bot communication** under **Permissions** for both bots.
+They can then use `message_bot` to reach your bots in other spaces in the same organization. The same permission also applies to existing agent connections
+that reach other people's bots through a linked chat app.
 
 ## What follows you everywhere
 

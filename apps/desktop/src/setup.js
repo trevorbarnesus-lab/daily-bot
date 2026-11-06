@@ -6,8 +6,10 @@
   /** Core's `translate`, which this plain page cannot import: English-keyed, `{name}` placeholders. */
   function t(message, values) {
     const template = Object.hasOwn(messages, message) ? messages[message] : message;
-    if (!values) return template;
-    return template.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) =>
+    const copy =
+      message === "Rakazo Cloud" ? template : template.replace(/\bRakazo\b/g, "Daily Bot");
+    if (!values) return copy;
+    return copy.replace(/\{([A-Za-z0-9_]+)\}/g, (match, key) =>
       Object.hasOwn(values, key) ? String(values[key]) : match,
     );
   }

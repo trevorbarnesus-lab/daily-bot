@@ -12,6 +12,7 @@ import type {
   RakazoDesktopDevice,
 } from "@rakazo/contracts";
 import { parseServerHeaders } from "@rakazo/contracts";
+import { PRODUCT_DISPLAY_NAME } from "@rakazo/core";
 import type { Session } from "electron";
 import {
   app,
@@ -169,7 +170,12 @@ if (PERFORMANCE_USER_DATA) {
   app.setPath("sessionData", path.join(PERFORMANCE_USER_DATA, "session"));
 }
 app.once("will-finish-launching", () => markOnce("rk:main:will-finish-launching"));
-app.once("ready", () => markOnce("rk:main:ready"));
+app.once("ready", () => {
+  markOnce("rk:main:ready");
+  if (process.platform === "darwin") {
+    app.setAboutPanelOptions({ applicationName: PRODUCT_DISPLAY_NAME });
+  }
+});
 // Includes fresh partitions and popup-created sessions, before they load remote content.
 app.on("session-created", (value) => installSessionPermissions(value, permissionTarget));
 
@@ -884,9 +890,9 @@ function installApplicationMenu() {
     process.platform === "darwin"
       ? [
           {
-            label: app.name,
+            label: PRODUCT_DISPLAY_NAME,
             submenu: [
-              { role: "about", label: t("About {name}", { name: app.name }) },
+              { role: "about", label: t("About {name}", { name: PRODUCT_DISPLAY_NAME }) },
               openSettings,
               checkForUpdates,
               { type: "separator" },
@@ -895,11 +901,11 @@ function installApplicationMenu() {
               changeServer,
               stopStack,
               { type: "separator" },
-              { role: "hide", label: t("Hide {name}", { name: app.name }) },
+              { role: "hide", label: t("Hide {name}", { name: PRODUCT_DISPLAY_NAME }) },
               { role: "hideOthers", label: t("Hide Others") },
               { role: "unhide", label: t("Show All") },
               { type: "separator" },
-              { role: "quit", label: t("Quit {name}", { name: app.name }) },
+              { role: "quit", label: t("Quit {name}", { name: PRODUCT_DISPLAY_NAME }) },
             ],
           },
           {

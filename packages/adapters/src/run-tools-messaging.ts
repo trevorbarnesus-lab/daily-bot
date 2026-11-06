@@ -3,6 +3,7 @@ import { ATTACHMENT_MAX_COUNT } from "@rakazo/contracts";
 import {
   BOT_MESSAGE_MAX_LENGTH,
   isBackgroundRunTrigger,
+  isRealtimeVoiceHandoffRunNonce,
   redactSecrets,
   resolveBotAddress,
 } from "@rakazo/core";
@@ -14,6 +15,7 @@ import {
 import { messageBot } from "./bot-messages.js";
 import { endCallFromTool, requestUserCall } from "./call-request.js";
 import { normalizeWorkspacePath, resolveBotWorkspacePath } from "./computer-support.js";
+import { crossSpaceBotPeers } from "./cross-space-bots.js";
 import { handoffToGroupBot } from "./group-handoff.js";
 import type { RunContext } from "./run-context.js";
 import { publishMessage } from "./run-messages.js";
@@ -85,7 +87,10 @@ async function prepareSentFiles(
   }
   const owner = recipient.groupId
     ? { botId: bot.id, groupId: recipient.groupId }
-    : { botId: target.id };
+    : {
+        botId: target.id,
+        ...(target.spaceId !== ctx.run.spaceId ? { spaceId: target.spaceId } : {}),
+      };
   const files: AttachmentBlock[] = [];
   for (const file of read) {
     try {
@@ -111,14 +116,29 @@ async function findRecipient(
   const candidates = await deps.prisma.bot.findMany({
     where: {
       spaceId: run.spaceId,
-      userId: run.userId,
       archivedAt: null,
       ...(recipient.groupId ? { groupMembers: { some: { groupId: recipient.groupId } } } : {}),
     },
     select: { id: true, name: true, computerId: true, computerSwitching: true },
   });
   const target = resolveBotAddress(candidates, recipient);
-  return target && target.id !== bot.id ? target : undefined;
+  if (target) return target.id !== bot.id ? { ...target, spaceId: run.spaceId } : undefined;
+  if (
+    recipient.groupId ||
+    (!recipient.botId && !recipient.name?.trim()) ||
+    (!recipient.botId &&
+      candidates.some((entry) => entry.name.toLowerCase() === recipient.name?.trim().toLowerCase()))
+  )
+    return undefined;
+  const peers = await crossSpaceBotPeers(
+    deps.prisma,
+    run,
+    recipient.botId
+      ? { id: recipient.botId }
+      : { name: { equals: recipient.name?.trim(), mode: "insensitive" } },
+    2,
+  );
+  return peers.length === 1 ? peers[0] : undefined;
 }
 
 /** Paths on the shared computer, checked to exist, as any bot on it can address them. */
@@ -232,6 +252,12 @@ export const messagingTools: ToolHandlers = {
   },
   async message_user(ctx, call) {
     const { deps, run } = ctx;
+    // Daily Bot: ordinary call answers return through the run's spoken result.
+    if (isRealtimeVoiceHandoffRunNonce(run.clientNonce))
+      return call.finish({
+        ok: true,
+        note: "Continue working. Put the complete result in your final reply for spoken delivery; no chat message was posted.",
+      });
     const { args } = call;
     const { reply } = ctx.state;
     const rawMessage = redactSecrets(String(args.message ?? ""), ctx.secrets);

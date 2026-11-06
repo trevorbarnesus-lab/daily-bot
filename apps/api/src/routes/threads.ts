@@ -561,17 +561,17 @@ export function threadsRoutes(ctx: RouterContext) {
         ];
         const committed = await deps.prisma
           .$transaction(async (tx) => {
-            // A late provider hang-up is harmless when the call never produced a
-            // user utterance; do not create a phantom marker or follow-up run.
-            const userUtterance = await tx.message.findFirst({
+            // A greeting-only live call still has a transcript. A call that never
+            // produced a saved turn has nothing to close.
+            const callUtterance = await tx.message.findFirst({
               where: {
                 threadId,
-                role: "user",
+                role: { in: ["user", "bot"] },
                 clientNonce: { startsWith: `${CALL_CLIENT_NONCE_PREFIX}${input.callId}:` },
               },
-              select: { id: true },
+              select: { clientNonce: true },
             });
-            if (!userUtterance) return null;
+            if (!callUtterance) return null;
             // The marker's deterministic nonce is the idempotency key: the unique
             // (threadId, clientNonce) index rejects a second hang-up, concurrent or not.
             const message = await createThreadMessageInTransaction(tx, {
@@ -588,6 +588,29 @@ export function threadsRoutes(ctx: RouterContext) {
               type: "thread.message.created",
               payload: { messageId: message.id, role: "bot", blocks, callId: input.callId },
             });
+            // The live bridge already dispatched explicit requests to the regular bot.
+            // End the transcript card without starting a second run that could repeat them.
+            if (
+              callUtterance.clientNonce?.startsWith(
+                `${CALL_CLIENT_NONCE_PREFIX}${input.callId}:realtime-`,
+              )
+            ) {
+              const ended = await appendEventInTransaction(tx, {
+                spaceId: context.actor.spaceId,
+                threadId,
+                botId,
+                type: "thread.call.ended",
+                payload: {
+                  botId,
+                  threadId,
+                  callId: input.callId,
+                  title: "",
+                  farewell: "",
+                  messageId: message.id,
+                },
+              });
+              return { runId: null, eventSeq: ended.seq };
+            }
             const task = await tx.task.create({
               data: {
                 spaceId: context.actor.spaceId,
@@ -636,10 +659,12 @@ export function threadsRoutes(ctx: RouterContext) {
         await deps.events.notify(threadId, committed.eventSeq).catch((error) => {
           getLogger().error("call end realtime notification", error);
         });
-        // The queued run is durable; a missed wake is repaired by the reconciler.
-        await deps.jobs.enqueue(runContinueJob(committed.runId)).catch((error) => {
-          getLogger().error("call end enqueue", error);
-        });
+        if (committed.runId) {
+          // The queued run is durable; a missed wake is repaired by the reconciler.
+          await deps.jobs.enqueue(runContinueJob(committed.runId)).catch((error) => {
+            getLogger().error("call end enqueue", error);
+          });
+        }
         return { ok: true as const };
       }),
       answer: authed.threads.answer.handler(async ({ context, input }) => {

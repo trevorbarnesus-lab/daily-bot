@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { callClientNonce, callIdFromClientNonce, isCallClientNonce } from "./call-nonce.js";
+import {
+  callClientNonce,
+  callIdFromClientNonce,
+  isCallClientNonce,
+  isRealtimeHandoffRunNonce,
+  isRealtimeVoiceHandoffRunNonce,
+  realtimeHandoffRunNonce,
+} from "./call-nonce.js";
 import { newClientId } from "./client-id.js";
 
 describe("call client nonce", () => {
@@ -41,4 +48,13 @@ describe("call client nonce", () => {
     expect(newClientId()).not.toBe(first);
     expect(callIdFromClientNonce(callClientNonce(first))).toBe(first);
   });
+});
+
+it("keeps chat handoff nonces compatible and distinguishes spoken results", () => {
+  expect(realtimeHandoffRunNonce("source", "chat")).toBe("realtime-handoff:source");
+  const nonce = realtimeHandoffRunNonce("source", "voice");
+  expect(isRealtimeHandoffRunNonce(nonce)).toBe(true);
+  expect(isRealtimeVoiceHandoffRunNonce(nonce)).toBe(true);
+  expect(isRealtimeVoiceHandoffRunNonce("realtime-handoff:source")).toBe(false);
+  expect(isRealtimeVoiceHandoffRunNonce(null)).toBe(false);
 });

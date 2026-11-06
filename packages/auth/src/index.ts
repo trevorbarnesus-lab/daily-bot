@@ -425,7 +425,7 @@ export function createAuth(prisma: PrismaClient, env: AuthEnv) {
         ? [
             passkey({
               rpID: relyingParty.rpID,
-              rpName: "Rakazo",
+              rpName: "Daily Bot",
               origin: relyingParty.origins,
             }) as BetterAuthPlugin,
           ]

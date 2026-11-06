@@ -105,6 +105,7 @@ async function runInSpace(space: Space, options: RunOptions = {}) {
       }),
     },
     bot: {
+      findFirst: vi.fn(async () => null),
       findUniqueOrThrow: vi.fn(async () => ({
         id: run.botId,
         name: "Assistant",

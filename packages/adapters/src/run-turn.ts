@@ -14,6 +14,7 @@ import {
   displayName,
   humanizeToolName,
   isBackgroundRunTrigger,
+  isRealtimeVoiceHandoffRunNonce,
   MISSING_TOOL_FINAL_RESPONSE_ERROR,
   redactSecrets,
   redactSecretsAfter,
@@ -895,7 +896,11 @@ export async function completeRun(ctx: RunContext) {
     leaseOwner: ctx.workerId,
     leaseFence: ctx.fence,
     outcome: "completed",
-    blocks,
+    // Daily Bot: keep tool/artifact blocks visible; return prose only to the call.
+    blocks: isRealtimeVoiceHandoffRunNonce(run.clientNonce)
+      ? blocks.filter((block) => block.kind !== "text")
+      : blocks,
+    ...(isRealtimeVoiceHandoffRunNonce(run.clientNonce) ? { spokenResult: text } : {}),
     markUnread:
       !groupSilentEnd &&
       completionMarksUnread(run.trigger, text, ctx.source.peerMessage?.repliesToRequest === true),
@@ -926,7 +931,12 @@ export async function completeRun(ctx: RunContext) {
     ).catch((error) => getLogger().error("bot message result return", error));
   }
   const notifyBody = completionNotificationPreview(text);
-  if (runSendsFinishNotification(run.trigger) && notifyBody && !completed.continuationRunId) {
+  if (
+    !isRealtimeVoiceHandoffRunNonce(run.clientNonce) &&
+    runSendsFinishNotification(run.trigger) &&
+    notifyBody &&
+    !completed.continuationRunId
+  ) {
     await notifyRun(deps, run, {
       kind: "completion",
       title: `${displayName(bot.name, "Bot")} finished`,

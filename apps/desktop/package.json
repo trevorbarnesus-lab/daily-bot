@@ -72,8 +72,9 @@
       "entitlements": "assets/entitlements.mac.plist",
       "entitlementsInherit": "assets/entitlements.mac.plist",
       "extendInfo": {
-        "NSMicrophoneUsageDescription": "Rakazo uses the microphone for dictation and voice calls with your bots.",
-        "NSSpeechRecognitionUsageDescription": "Rakazo turns what you say into text for dictation and voice calls with your bots."
+        "CFBundleDisplayName": "Daily Bot",
+        "NSMicrophoneUsageDescription": "Daily Bot uses the microphone for dictation and voice calls with your bots.",
+        "NSSpeechRecognitionUsageDescription": "Daily Bot turns what you say into text for dictation and voice calls with your bots."
       },
       "extraResources": [
         {

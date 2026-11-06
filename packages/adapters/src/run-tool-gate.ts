@@ -16,6 +16,7 @@ import {
   decisiveActionApprovalRules,
   displayName,
   humanizeToolName,
+  isRealtimeHandoffRunNonce,
   newSiteOutcome,
   outboundSiteGate,
   planActionGate,
@@ -25,7 +26,7 @@ import {
   SITE_SENDING_TOOLS,
   toolRequiresApproval,
   toolRequiresExplicitApproval,
-  unattendedTriggerToolRequiresApproval,
+  unattendedToolRequiresApproval,
 } from "@rakazo/core";
 import { normalizedHttpUrl, urlSite } from "@rakazo/core/egress";
 import { approvalEffectKey, toolEffectIdempotencyKey } from "@rakazo/core/node/approval-effect-key";
@@ -177,16 +178,13 @@ export async function gateToolCall(
     toolName === approvalName || toolName === name || declaredReadOnly === false
       ? declaredReadOnly
       : ctx.tools.connector.get(toolName)?.readOnly;
+  const liveCallHandoff = isRealtimeHandoffRunNonce(run.clientNonce);
   const requiresUnattendedApproval =
+    (run.trigger === "webhook" || liveCallHandoff) &&
     !catalogControlRead &&
-    ((unidentifiedAction && run.trigger === "webhook") ||
+    (unidentifiedAction ||
       approvalToolNames.some((toolName) =>
-        unattendedTriggerToolRequiresApproval(
-          run.trigger,
-          toolName,
-          viaConnector,
-          declaredReadOnlyFor(toolName),
-        ),
+        unattendedToolRequiresApproval(toolName, viaConnector, declaredReadOnlyFor(toolName)),
       ));
   const connectorProviders = ctx.tools.connectedPlugins.map((plugin) => plugin.provider);
   const connectorKind = connectorKindFromToolName(approvalName, connectorProviders);
@@ -220,6 +218,21 @@ export async function gateToolCall(
           rules: await ctx.trust.loadApprovalRules(),
         })
       : "allow";
+  // Daily Bot: a public lookup should discover its source before opening it,
+  // rather than interrupting the call to approve a model-guessed destination.
+  // Search-result URLs still pass the normal saved rules and SSRF checks.
+  if (
+    liveCallHandoff &&
+    name === "web_fetch" &&
+    siteGate === "new" &&
+    ctx.tools.builtins.some((tool) => tool.name === "web_search")
+  )
+    return {
+      result: {
+        error:
+          "Search with web_search first, then fetch an exact URL returned by that search. This URL has not been opened.",
+      },
+    };
   const watch = name === "schedule_create" ? watchFromTool(args.watch) : undefined;
   // A tool watch repeats its read unattended, so it passes the read check that call would now.
   const watchedTool = watch?.kind === "tool" ? watch.tool : undefined;
@@ -305,7 +318,11 @@ export async function gateToolCall(
     unidentifiedAction && resolvedRules.decision === "allow"
       ? { ...resolvedRules, decision: "ask" as const }
       : resolvedRules;
-  const mode = approvalModeFromPreference(await ctx.trust.loadAutoReviewPreference());
+  // Spoken requests can be mistranscribed. Keep consequential actions behind an on-screen approval.
+  const mode =
+    liveCallHandoff && requiresUnattendedApproval
+      ? "ask"
+      : approvalModeFromPreference(await ctx.trust.loadAutoReviewPreference());
   const reviewable = mode === "auto" && !requiresMandatoryApproval;
   const injectedReview = reviewable ? deps.autoReview : undefined;
   const reviewSettings = !reviewable || injectedReview ? null : await ctx.trust.loadApprovalModel();
@@ -426,6 +443,7 @@ export async function gateToolCall(
   // A fetch to a new site is gated like any action, so it needs an effect to approve.
   const applied =
     READ_ONLY_AGENT_TOOLS.has(name) &&
+    !needsApprovalEarly &&
     siteGate !== "new" &&
     nextApprovedTool !== name &&
     !approvedEffectKey

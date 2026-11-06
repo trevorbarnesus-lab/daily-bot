@@ -29,7 +29,9 @@ import {
   webLogoAvatarActivity,
 } from "./logo-avatar-activity.js";
 import { reportClientError } from "./monitoring";
-import { recheckSessionOnUnauthorized, rpc } from "./rpc.js";
+import { startRealtimeCall } from "./realtime-call.js";
+import { readRealtimeCallModel, SIGNED_IN_USER_KEY } from "./realtime-call-preference.js";
+import { recheckSessionOnUnauthorized, rpc, selectedSpaceId } from "./rpc.js";
 import { isThreadSnapshotEvent, reduceThreadSnapshot } from "./thread-events.js";
 import { speaker } from "./tts.js";
 import { errorText } from "./user-error";
@@ -67,7 +69,10 @@ export const SIGN_OUT_HANG_UP_MS = 3_000;
  * The last signed-in user a tab confirmed. Signing in elsewhere sends no Better Auth message,
  * so other tabs learn of a new account from this key's storage event.
  */
-export const SIGNED_IN_USER_KEY = "rakazo.signedInUser";
+export { SIGNED_IN_USER_KEY };
+
+let realtime: { transport: ReturnType<typeof startRealtimeCall>; spaceId: string | null } | null =
+  null;
 let state: CallState | null = null;
 /** The signed-in user this page belongs to; undefined until the session first resolves. */
 let identity: string | null | undefined;
@@ -183,6 +188,63 @@ export function startCall(call: {
     heard: "",
     exchanges: [],
   };
+  const liveModel = readRealtimeCallModel(call.botId);
+  if (liveModel) {
+    const id = callId;
+    const spaceId = selectedSpaceId();
+    const isCurrent = () => state !== null && callId === id;
+    const transport = startRealtimeCall({
+      model: liveModel,
+      botId: call.botId,
+      callId: id,
+      spaceId,
+      opening: call.answered?.opening,
+      onFailure: (caption) => {
+        if (isCurrent()) set({ phase: "listening", caption, heard: "" });
+      },
+      onEvent: (event) => {
+        if (!isCurrent()) return;
+        switch (event.type) {
+          case "input_audio_buffer.speech_started":
+            set({ phase: "listening", caption: "", heard: "" });
+            break;
+          case "input_audio_buffer.speech_stopped":
+            set({ phase: "thinking", heard: "" });
+            break;
+          case "response.output_audio_transcript.delta":
+            set({ phase: "speaking", caption: (state?.caption ?? "") + (event.delta ?? "") });
+            break;
+          case "response.output_audio_transcript.done":
+          case "conversation.item.input_audio_transcription.completed":
+            if (event.transcript?.trim()) {
+              const role = event.type === "response.output_audio_transcript.done" ? "bot" : "user";
+              set({ exchanges: [...(state?.exchanges ?? []), { role, text: event.transcript }] });
+            }
+            break;
+          case "output_audio_buffer.stopped":
+          case "output_audio_buffer.cleared":
+            set({ phase: "listening", caption: "" });
+            break;
+          case "error":
+            set({ phase: "listening", caption: "The live call had an audio error." });
+            break;
+        }
+      },
+    });
+    realtime = { transport, spaceId };
+    emit();
+    void transport.ready.then(
+      () => {
+        if (isCurrent()) set({ phase: "listening", connectedAt: Date.now() });
+      },
+      (error: unknown) => {
+        if (!isCurrent()) return;
+        void transport.close();
+        set({ phase: "listening", caption: errorText(error, t`Microphone failed`) });
+      },
+    );
+    return;
+  }
   unsubSpeech = speaker.subscribe((speech) => {
     if (!state || state.phase === "ringing") return;
     if (openingPending && speech.status === "idle") openingPending = false;
@@ -245,15 +307,19 @@ export function endCall(): void {
     const { botId, connectedAt } = state;
     const closingCallId = callId;
     const epoch = sessionEpoch;
+    const live = realtime;
     const durationSeconds =
       connectedAt === null ? undefined : Math.max(0, Math.round((Date.now() - connectedAt) / 1000));
     const closeServerCall = async () => {
+      if (live) await live.transport.close();
       if (epoch !== sessionEpoch) return;
-      await rpc.threads.endCall({
+      const input = {
         botId,
         callId: closingCallId,
         ...(durationSeconds === undefined ? {} : { durationSeconds }),
-      });
+      };
+      if (live) await rpc.threads.endCall(input, { context: { spaceId: live.spaceId } });
+      else await rpc.threads.endCall(input);
     };
     const closed = callSends.closeAfterSends(closingCallId, closeServerCall);
     hangUps.add(closed);
@@ -264,6 +330,8 @@ export function endCall(): void {
 
 /** Stops the call on this device only. */
 function dropCall(): void {
+  void realtime?.transport.close();
+  realtime = null;
   pickup?.abort();
   pickup = null;
   openingPending = false;
@@ -392,6 +460,10 @@ export function toggleMute(): void {
   if (!state) return;
   const muted = !state.muted;
   set({ muted });
+  if (realtime) {
+    realtime.transport.mute(muted);
+    return;
+  }
   if (muted) {
     dictation.stop("cancel");
     micOpen = false;

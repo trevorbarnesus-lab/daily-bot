@@ -103,3 +103,28 @@ describe("mobile app config", () => {
     expect(appConfig(context(config))).toBe(config);
   });
 });
+
+it("brands the shipped app and permissions without renaming its internal identifiers", () => {
+  vi.stubEnv("EAS_BUILD_PROFILE", "development");
+  vi.stubEnv("EXPO_PUBLIC_API_URL", undefined);
+  vi.stubEnv("GOOGLE_SERVICES_JSON", undefined);
+  const shipped = {
+    ...config,
+    name: "Rakazo",
+    ios: {
+      ...config.ios,
+      infoPlist: { NSMicrophoneUsageDescription: "Rakazo uses the microphone for calls." },
+    },
+  };
+  const result = appConfig(context(shipped));
+  expect(result).toMatchObject({
+    name: "Daily Bot",
+    slug: config.slug,
+    android: { package: config.android!.package },
+    ios: {
+      bundleIdentifier: config.ios!.bundleIdentifier,
+      infoPlist: { NSMicrophoneUsageDescription: "Daily Bot uses the microphone for calls." },
+    },
+  });
+  expect(shipped.name).toBe("Rakazo");
+});

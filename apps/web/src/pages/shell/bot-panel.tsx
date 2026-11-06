@@ -41,6 +41,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Download, Settings, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Suspense, useEffect, useId, useRef, useState } from "react";
+import { LiveCallModelPicker } from "../../components/call/LiveCallModelPicker";
 import { ErrorBoundary, SectionLoadFailed } from "../../components/ErrorBoundary";
 import { InstructionSettings } from "../../components/InstructionSettings";
 import { PagesList } from "../../components/pages/PagesList";
@@ -391,9 +392,11 @@ export function BotSettings({
         modelProvider: selected?.provider ?? null,
         modelId: selected?.modelId ?? null,
         ...(modelMetaReady &&
-        (thinkingOptions.length > 0 ||
-          (selected?.provider ?? null) !== bot.modelProvider ||
-          (selected?.modelId ?? null) !== bot.modelId)
+        (selected
+          ? thinkingOptions.length > 0 ||
+            selected.provider !== bot.modelProvider ||
+            selected.modelId !== bot.modelId
+          : (thinkingLevel || null) !== bot.thinkingLevel)
           ? {
               thinkingLevel: thinkingOptions.length
                 ? ((thinkingLevel || null) as ThinkingLevel | null)
@@ -640,7 +643,7 @@ export function BotSettings({
                       value={selectedModelKey}
                       onChange={(key) => {
                         setModelKey(key);
-                        setThinkingLevel("");
+                        if (key) setThinkingLevel("");
                       }}
                     />
                   </div>
@@ -701,6 +704,7 @@ export function BotSettings({
               ) : null}
             </SettingsGroup>
             <SettingsGroup label={t`Voice`}>
+              {me?.phoneCallsEnabled ? <LiveCallModelPicker key={bot.id} botId={bot.id} /> : null}
               <label
                 htmlFor={`${ids}-auto-speak`}
                 className="flex min-h-11 cursor-pointer items-center justify-between gap-3 text-body text-foreground"
@@ -723,7 +727,7 @@ export function BotSettings({
                   <NativeSelect
                     id={`${ids}-voice`}
                     className="max-w-2/3"
-                    value={voiceId}
+                    value={voices.some((voice) => voice.id === voiceId) ? voiceId : ""}
                     onChange={(event) => setVoiceId(event.target.value)}
                   >
                     <NativeSelectOption value="">{t`Account default`}</NativeSelectOption>

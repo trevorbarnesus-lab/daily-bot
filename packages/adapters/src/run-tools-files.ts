@@ -1,6 +1,7 @@
 import type { MessageBlock } from "@rakazo/contracts";
 import { ATTACHMENT_MAX_BYTES } from "@rakazo/contracts";
 import { inferAttachmentMimeType, isBackgroundRunTrigger } from "@rakazo/core";
+import { runAsTenant } from "@rakazo/db";
 import { resolveBotWorkspacePath } from "./computer-support.js";
 import { desktopGuardApplies, desktopProtectionGuardMessage } from "./desktop-command-guard.js";
 import { protectedActivateScriptWriteRefusal } from "./desktop-guard-words.js";
@@ -184,24 +185,32 @@ export async function saveWorkspaceFile(
   call: ToolCall,
   filePath: string,
   bytes: Uint8Array,
-  owner: { botId: string; groupId?: string },
+  owner: { botId: string; groupId?: string; spaceId?: string },
   meta: { name?: string; description?: string } = {},
 ): Promise<{ artifactId: string; block: AttachmentBlock }> {
   const { deps, run } = ctx;
   if (!deps.artifacts) throw new Error("artifact storage unavailable");
-  return attachWorkspaceFileToThread(
-    { prisma: deps.prisma, artifacts: deps.artifacts, maxUploadSizeBytes: deps.maxUploadSizeBytes },
-    {
-      spaceId: run.spaceId,
-      userId: run.userId,
-      botId: owner.botId,
-      groupId: owner.groupId,
-      runId: run.id,
-      filePath,
-      bytes,
-      operationId: call.executionId,
-      name: meta.name,
-      description: meta.description,
-    },
-  );
+  const artifacts = deps.artifacts;
+  const spaceId = owner.spaceId ?? run.spaceId;
+  const attach = () =>
+    attachWorkspaceFileToThread(
+      {
+        prisma: deps.prisma,
+        artifacts,
+        maxUploadSizeBytes: deps.maxUploadSizeBytes,
+      },
+      {
+        spaceId,
+        userId: run.userId,
+        botId: owner.botId,
+        groupId: owner.groupId,
+        runId: run.id,
+        filePath,
+        bytes,
+        operationId: call.executionId,
+        name: meta.name,
+        description: meta.description,
+      },
+    );
+  return spaceId === run.spaceId ? attach() : runAsTenant({ userId: run.userId, spaceId }, attach);
 }

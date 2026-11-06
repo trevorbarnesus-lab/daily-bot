@@ -25,6 +25,8 @@ import {
   instructionUpdateDiff,
   isApprovalAskBlock,
   isConversationalRun,
+  isRealtimeHandoffRunNonce,
+  isRealtimeVoiceHandoffRunNonce,
   isSecretAskBlock,
   messageBypassesTakeoverWait,
   messageReaction,
@@ -203,6 +205,8 @@ export type FinalizeRunInput = FinalizeRunBase &
         outcome: "completed";
         blocks: MessageBlock[];
         markUnread?: boolean;
+        /** Daily Bot: spoken delivery retains its result without a duplicate chat reply. */
+        spokenResult?: string;
       }
     | {
         outcome: "failed";
@@ -1930,9 +1934,26 @@ async function finalizeRunOnce(
       });
     }
     let firstResponse = false;
+    // Daily Bot: delivery may have changed while the worker was running. The
+    // thread lock serializes this read with a live call's delivery update.
+    const delivery =
+      input.outcome === "completed" && input.spokenResult !== undefined
+        ? await tx.run.findUnique({ where: { id: input.runId }, select: { clientNonce: true } })
+        : undefined;
+    const redirected =
+      input.outcome === "completed" &&
+      input.spokenResult !== undefined &&
+      isRealtimeHandoffRunNonce(delivery?.clientNonce) &&
+      !isRealtimeVoiceHandoffRunNonce(delivery?.clientNonce);
     const replyBlocks =
       input.outcome === "completed"
-        ? completedRunBlocks(input.blocks, writableRun?.startedAt ?? null, now)
+        ? completedRunBlocks(
+            redirected && input.spokenResult
+              ? [...input.blocks, { kind: "text", text: input.spokenResult }]
+              : input.blocks,
+            writableRun?.startedAt ?? null,
+            now,
+          )
         : (input.partialReply ?? []);
     if (replyBlocks.length > 0) {
       const message = await createThreadMessageInTransaction(tx, {
@@ -1961,7 +1982,12 @@ async function finalizeRunOnce(
       botId: input.botId,
       type: input.outcome === "completed" ? "run.completed" : "run.failed",
       runId: input.runId,
-      payload: input.outcome === "completed" ? {} : { error: input.error },
+      payload:
+        input.outcome === "completed"
+          ? input.spokenResult === undefined
+            ? {}
+            : { spokenResult: input.spokenResult }
+          : { error: input.error },
     });
     await tx.event.deleteMany({
       where: { runId: input.runId, ...transientRunEventsWhere() },

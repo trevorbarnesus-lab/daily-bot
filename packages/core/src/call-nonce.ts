@@ -23,3 +23,24 @@ export function callIdFromClientNonce(clientNonce: string | null | undefined): s
   const suffixAt = rest.lastIndexOf(":");
   return suffixAt === -1 ? undefined : rest.slice(0, suffixAt) || undefined;
 }
+
+const REALTIME_HANDOFF_NONCE_PREFIX = "realtime-handoff:";
+
+export function realtimeHandoffRunNonce(
+  messageId: string,
+  delivery: "chat" | "voice" = "chat",
+): string {
+  return REALTIME_HANDOFF_NONCE_PREFIX + (delivery === "voice" ? "voice:" : "") + messageId;
+}
+
+export function isRealtimeHandoffRunNonce(nonce: string | null | undefined): boolean {
+  return Boolean(nonce?.startsWith(REALTIME_HANDOFF_NONCE_PREFIX));
+}
+
+export function isRealtimeVoiceHandoffRunNonce(nonce: string | null | undefined): boolean {
+  return Boolean(nonce?.startsWith(`${REALTIME_HANDOFF_NONCE_PREFIX}voice:`));
+}
+
+export function realtimeUserTranscriptPrefix(callId: string): string {
+  return `${CALL_CLIENT_NONCE_PREFIX}${callId}:realtime-user-`;
+}

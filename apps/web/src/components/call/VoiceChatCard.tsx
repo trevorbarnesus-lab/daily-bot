@@ -136,7 +136,7 @@ export function VoiceChatCard({
                 return <span key={line.id} data-message-id={line.id} className="sr-only" />;
               }
               return (
-                <p
+                <div
                   key={line.id}
                   data-message-id={line.id}
                   dir="auto"
@@ -146,8 +146,11 @@ export function VoiceChatCard({
                       : "rounded-md bg-muted/60 px-3 py-2 text-foreground",
                   )}
                 >
-                  {line.text}
-                </p>
+                  <span className="block text-caption font-medium text-muted-foreground">
+                    {line.role === "user" ? t`You` : "Assistant"}
+                  </span>
+                  <p className="whitespace-pre-wrap">{line.text}</p>
+                </div>
               );
             })}
           </div>
